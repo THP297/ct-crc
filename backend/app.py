@@ -144,15 +144,14 @@ def api_task_engine_info():
 
 @app.route("/api/task-engine/live-prices")
 def api_live_prices():
-    from .realtime_poller import get_latest_prices, poll_now
-    prices = get_latest_prices()
-    if not prices:
-        try:
-            poll_now()
-            prices = get_latest_prices()
-        except Exception as e:
-            logging.warning("live-prices fallback poll: %s", e)
-    return jsonify(prices)
+    from .realtime_poller import poll_now
+    try:
+        prices = poll_now()
+    except Exception as e:
+        logging.warning("live-prices poll: %s", e)
+        from .realtime_poller import get_latest_prices
+        prices = get_latest_prices()
+    return jsonify(prices or {})
 
 
 @app.route("/api/check", methods=["GET", "POST"])
