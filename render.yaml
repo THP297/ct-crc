@@ -1,0 +1,21 @@
+# Render Blueprint: API only. Use Supabase or Neon for DB (set DATABASE_URL in Render env).
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: crypto-currency-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT backend.app:app
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CRYPTO_SYMBOLS
+        value: "BTCUSDT,ETHUSDT"
+      - key: PYTHON_VERSION
+        value: "3.11"

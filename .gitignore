@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+local-data/
+
+# Private project - no setup/deploy docs
+.env.example
+README.md
+DEPLOY.md
+.github/
