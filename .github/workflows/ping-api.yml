@@ -1,0 +1,24 @@
+# Call /api/check on a schedule (e.g. when API is on Render and may sleep).
+# Set API_BASE_URL in repo: Settings → Secrets and variables → Actions → Variables.
+
+name: Ping API check
+
+on:
+  schedule:
+    # Every 5 minutes (UTC)
+    - cron: "*/5 * * * *"
+  workflow_dispatch: # Allow manual run from Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/check
+        run: |
+          URL="${{ vars.API_BASE_URL }}/api/check"
+          if [ -z "${{ vars.API_BASE_URL }}" ]; then
+            echo "::warning:: API_BASE_URL not set. Add it in repo Settings → Secrets and variables → Actions → Variables."
+            exit 0
+          fi
+          echo "Calling $URL"
+          curl -sf --max-time 120 "$URL" || true
