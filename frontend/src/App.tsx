@@ -5,7 +5,7 @@ import {
   initTaskEngine,
   submitTaskEnginePrice,
   fetchTaskEngineInfo,
-  subscribeLivePrices,
+  fetchLivePrices,
   type TaskEngineState,
   type TaskQueueItem,
   type PassedTaskItem,
@@ -95,11 +95,16 @@ function App() {
     if (engineSelectedSymbol) loadEngineInfo(engineSelectedSymbol);
   }, [engineSelectedSymbol]);
 
-  // Subscribe to live prices stream when on engine page (updates on every new price)
+  // Poll live prices every 2s — backend serves from WebSocket cache, no rate limit
   useEffect(() => {
     if (page !== "engine") return;
-    const unsubscribe = subscribeLivePrices(setLivePrices);
-    return unsubscribe;
+    const poll = () =>
+      fetchLivePrices()
+        .then(setLivePrices)
+        .catch(() => {});
+    poll();
+    const id = setInterval(poll, 2_000);
+    return () => clearInterval(id);
   }, [page]);
 
   // Handlers
@@ -252,7 +257,7 @@ function App() {
             {/* Live prices for all engine symbols */}
             {engineSymbols.length > 0 && (
               <section className="card">
-                <h2>Live Prices (Binance WebSocket, realtime)</h2>
+                <h2>Live Prices (Binance WebSocket, auto-refresh ~2s)</h2>
                 <div className="live-prices-grid">
                   {engineSymbols.map((sym) => {
                     const lp = livePrices[sym];

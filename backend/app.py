@@ -12,9 +12,7 @@ if __name__ == "__main__" and __package__ is None:
 from dotenv import load_dotenv
 load_dotenv()
 
-import queue
-
-from flask import Flask, Response, jsonify, request
+from flask import Flask, jsonify, request
 
 from .config import FLASK_HOST, FLASK_PORT
 from .fetcher import fetch_prices_dict
@@ -65,7 +63,6 @@ def index():
             "/api/task-engine/price",
             "/api/task-engine/info",
             "/api/task-engine/live-prices",
-            "/api/task-engine/live-prices/stream",
         ],
     })
 
@@ -155,31 +152,6 @@ def api_live_prices():
         from .realtime_poller import get_latest_prices
         prices = get_latest_prices()
     return jsonify(prices or {})
-
-
-@app.route("/api/task-engine/live-prices/stream")
-def api_live_prices_stream():
-    import json
-    from .realtime_poller import subscribe_live_prices, unsubscribe_live_prices, get_latest_prices
-
-    def generate():
-        q = subscribe_live_prices()
-        try:
-            yield f"data: {json.dumps(get_latest_prices())}\n\n"
-            while True:
-                try:
-                    snapshot = q.get(timeout=30)
-                    yield f"data: {json.dumps(snapshot)}\n\n"
-                except queue.Empty:
-                    yield f"data: {json.dumps(get_latest_prices())}\n\n"
-        finally:
-            unsubscribe_live_prices(q)
-
-    return Response(
-        generate(),
-        mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 @app.route("/api/check", methods=["GET", "POST"])
