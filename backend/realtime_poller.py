@@ -120,6 +120,7 @@ async def _ws_loop() -> None:
                         if not _first_ws_price_logged:
                             _first_ws_price_logged = True
                             logger.info("First WS price received: %s=%s", user_sym, price)
+                        logger.info("Live price: %s=%s", user_sym, price)
 
                         with _lock:
                             _latest_prices[user_sym] = price
