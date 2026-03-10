@@ -95,7 +95,7 @@ function App() {
     if (engineSelectedSymbol) loadEngineInfo(engineSelectedSymbol);
   }, [engineSelectedSymbol]);
 
-  // Poll live prices every 30s — backend serves from WebSocket cache, no rate limit
+  // Poll live prices every 5s — backend serves from WebSocket cache, no rate limit
   useEffect(() => {
     if (page !== "engine") return;
     const poll = () =>
@@ -103,7 +103,7 @@ function App() {
         .then(setLivePrices)
         .catch(() => {});
     poll();
-    const id = setInterval(poll, 30_000);
+    const id = setInterval(poll, 5_000);
     return () => clearInterval(id);
   }, [page]);
 
@@ -257,7 +257,7 @@ function App() {
             {/* Live prices for all engine symbols */}
             {engineSymbols.length > 0 && (
               <section className="card">
-                <h2>Live Prices (Binance WebSocket, auto-refresh 30s)</h2>
+                <h2>Live Prices (Binance WebSocket, auto-refresh 5s)</h2>
                 <div className="live-prices-grid">
                   {engineSymbols.map((sym: string) => {
                     const lp = livePrices[sym];
