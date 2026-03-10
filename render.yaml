@@ -7,7 +7,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT backend.app:app
+    startCommand: gunicorn -c gunicorn.conf.py -w 1 -b 0.0.0.0:$PORT backend.app:app
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false

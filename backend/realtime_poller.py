@@ -35,6 +35,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; CryptoBot/1.0)", "Accept": "a
 _lock = threading.Lock()
 _latest_prices: dict[str, float] = {}
 _poller_started = False
+_first_ws_price_logged = False
 
 _SAVE_THROTTLE_SEC = 30
 _last_save_ts: float = 0.0
@@ -84,20 +85,24 @@ async def _ws_loop() -> None:
 
     while True:
         try:
-            from .store import load_all_task_engine_symbols
+            from .store import load_all_task_engine_symbols, load_live_prices
             symbols = load_all_task_engine_symbols()
             if not symbols:
                 symbols = DEFAULT_SYMBOLS
-            if not symbols:
+            all_syms = list(dict.fromkeys([s.strip().upper() for s in DEFAULT_SYMBOLS] + (symbols or [])))
+            if not all_syms:
                 await asyncio.sleep(5)
                 continue
 
-            url = _build_ws_url(symbols)
+            with _lock:
+                _latest_prices.update(load_live_prices() or {})
+
+            url = _build_ws_url(all_syms)
             logger.info("WebSocket connecting: %s", url)
 
             async with websockets.connect(url, ssl=ssl_ctx, ping_interval=20, ping_timeout=10) as ws:
                 backoff = 1
-                logger.info("WebSocket connected — streaming %s", symbols)
+                logger.info("WebSocket connected — streaming %s", all_syms)
 
                 async for raw in ws:
                     try:
@@ -110,6 +115,11 @@ async def _ws_loop() -> None:
 
                         price = float(price_str)
                         user_sym = _user_symbol(binance_sym)
+
+                        global _first_ws_price_logged
+                        if not _first_ws_price_logged:
+                            _first_ws_price_logged = True
+                            logger.info("First WS price received: %s=%s", user_sym, price)
 
                         with _lock:
                             _latest_prices[user_sym] = price
@@ -197,7 +207,7 @@ def get_price(symbol: str) -> float | None:
 
 
 def poll_now() -> dict[str, float]:
-    """Return latest WebSocket prices. Falls back to REST if WS has no data yet."""
+    """Return latest WebSocket prices. Falls back to persisted then REST if WS has no data yet."""
     with _lock:
         if _latest_prices:
             snapshot = dict(_latest_prices)
@@ -208,7 +218,11 @@ def poll_now() -> dict[str, float]:
                 pass
             return snapshot
 
-    from .store import load_all_task_engine_symbols
+    from .store import load_all_task_engine_symbols, load_live_prices
+    persisted = load_live_prices()
+    if persisted:
+        return persisted
+
     symbols = load_all_task_engine_symbols()
     if not symbols:
         symbols = DEFAULT_SYMBOLS
