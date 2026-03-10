@@ -136,3 +136,18 @@ export async function fetchLivePrices(): Promise<LivePrices> {
   const res = await fetch(`${API}/task-engine/live-prices`);
   return await res.json();
 }
+
+export function subscribeLivePrices(
+  onData: (prices: LivePrices) => void,
+): () => void {
+  const url = `${API}/task-engine/live-prices/stream`;
+  const es = new EventSource(url);
+  es.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data) as LivePrices;
+      onData(data);
+    } catch {}
+  };
+  es.onerror = () => es.close();
+  return () => es.close();
+}

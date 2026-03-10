@@ -6,6 +6,7 @@ Crypto trades 24/7 — no trading-hours restriction.
 import asyncio
 import json
 import logging
+import queue
 import random
 import ssl
 import threading
@@ -37,6 +38,9 @@ _latest_prices: dict[str, float] = {}
 _poller_started = False
 _first_ws_price_logged = False
 
+_sse_queues: list[queue.Queue] = []
+_sse_lock = threading.Lock()
+
 _SAVE_THROTTLE_SEC = 30
 _last_save_ts: float = 0.0
 
@@ -60,6 +64,29 @@ def _build_ws_url(symbols: list[str]) -> str:
         bsym = _binance_symbol(sym).lower()
         streams.append(f"{bsym}@miniTicker")
     return f"{BINANCE_WS_URL}/stream?streams={'/'.join(streams)}"
+
+
+def subscribe_live_prices() -> queue.Queue:
+    """Return a queue that receives price snapshots. Caller must remove on disconnect."""
+    q = queue.Queue()
+    with _sse_lock:
+        _sse_queues.append(q)
+    return q
+
+
+def unsubscribe_live_prices(q: queue.Queue) -> None:
+    with _sse_lock:
+        if q in _sse_queues:
+            _sse_queues.remove(q)
+
+
+def _notify_sse_subscribers(snapshot: dict[str, float]) -> None:
+    with _sse_lock:
+        for q in _sse_queues:
+            try:
+                q.put_nowait(snapshot)
+            except queue.Full:
+                pass
 
 
 def _throttled_save(prices: dict[str, float]) -> None:
@@ -129,6 +156,7 @@ async def _ws_loop() -> None:
                         with _lock:
                             snapshot = dict(_latest_prices)
                         _throttled_save(snapshot)
+                        _notify_sse_subscribers(snapshot)
 
                     except (json.JSONDecodeError, ValueError, KeyError) as e:
                         logger.debug("WS message parse error: %s", e)
@@ -166,7 +194,9 @@ def _sample_loop() -> None:
         if prices:
             with _lock:
                 _latest_prices.update(prices)
-            save_live_prices(prices)
+                snapshot = dict(_latest_prices)
+            save_live_prices(snapshot)
+            _notify_sse_subscribers(snapshot)
             logger.info("Sample prices: %s", ", ".join(f"{k}={v:,.2f}" for k, v in sorted(prices.items())))
         time.sleep(CHECK_INTERVAL_SEC)
 
