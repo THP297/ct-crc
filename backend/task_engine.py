@@ -40,6 +40,9 @@ def _cancel_sibling(symbol: str, triggered_task: dict, current_pct: float,
     if sibling is None:
         return
 
+    if sibling["action"] == "BUY":
+        return
+
     remove_task_from_queue(sibling_id)
     add_closed_task(
         symbol=symbol,

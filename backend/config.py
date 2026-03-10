@@ -40,6 +40,11 @@ else:
     others = [u for u in _BINANCE_DEFAULT_BASE_URLS if u.rstrip("/") != BINANCE_BASE_URL]
     BINANCE_BASE_URLS = [BINANCE_BASE_URL] + others
 
+BINANCE_WS_URL = os.getenv(
+    "BINANCE_WS_URL",
+    "wss://stream.binance.com:9443",
+).strip().rstrip("/") or "wss://stream.binance.com:9443"
+
 SAMPLE_PRICES = os.getenv("SAMPLE_PRICES", "").strip().lower() in ("1", "true", "yes")
 
 FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0").strip() or "0.0.0.0"
