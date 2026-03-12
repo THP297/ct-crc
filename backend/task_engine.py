@@ -172,7 +172,7 @@ def _spawn_after_trigger(
     Sau BUY:  DOWN/SELL -2% | UP/SELL +3%
     Sau SELL:
       direction=="DOWN" → DOWN/BUY -3% | UP/SELL +3%
-      direction=="UP"   → DOWN/BUY -5% | UP/SELL +3%
+      direction=="UP"   → DOWN/BUY -2.5% | UP/SELL +3%
     """
     base = current_pct
 
@@ -201,12 +201,12 @@ def _spawn_after_trigger(
         )
 
     # direction == "UP"
-    down_t = base - 5.0
+    down_t = base - 2.5
     up_t = base + 3.0
     return _spawn_pair(
         symbol,
         "DOWN", down_t, "BUY",
-        f"BUY lại nếu x giảm thêm 5% (tới {down_t:+.4f}%)",
+        f"BUY lại nếu x giảm thêm 2.5% (tới {down_t:+.4f}%)",
         "UP", up_t, "SELL",
         f"SELL nếu x tăng 3% (tới {up_t:+.4f}%)",
         add_fn, update_sibling_fn,
