@@ -169,10 +169,10 @@ def _spawn_after_trigger(
     update_sibling_fn,
 ) -> list[dict]:
     """
-    Spawn sibling pair after trigger.
+    Spawn tasks after trigger.
     BUY trigger → no spawn
-    SELL + DOWN → DOWN/BUY -3% | DOWN/SELL -2%
-    SELL + UP   → DOWN/BUY -2.5% | UP/SELL +3%
+    SELL + DOWN → DOWN/BUY -3% ↔ DOWN/SELL -2%
+    SELL + UP   → t1: DOWN/BUY -2.5% (no sibling) | t2: DOWN/SELL -2% ↔ t3: UP/SELL +3%
     """
     base = current_pct
 
@@ -191,17 +191,19 @@ def _spawn_after_trigger(
             add_fn, update_sibling_fn,
         )
 
-    # direction == "UP"
-    down_t = base - 2.5
-    up_t = base + 3.0
-    return _spawn_pair(
-        symbol,
-        "DOWN", down_t, "BUY",
-        f"BUY lại nếu x giảm thêm 2.5% (tới {down_t:+.4f}%)",
-        "UP", up_t, "SELL",
-        f"SELL nếu x tăng 3% (tới {up_t:+.4f}%)",
-        add_fn, update_sibling_fn,
-    )
+    # direction == "UP" → 3 tasks
+    t1 = add_fn(symbol, "DOWN", base - 2.5, "BUY",
+                f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)")
+    t2 = add_fn(symbol, "DOWN", base - 2.0, "SELL",
+                f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
+    t3 = add_fn(symbol, "UP", base + 3.0, "SELL",
+                f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
+    if t2 and t3:
+        update_sibling_fn(t2["id"], t3["id"])
+        update_sibling_fn(t3["id"], t2["id"])
+        t2["sibling_id"] = t3["id"]
+        t3["sibling_id"] = t2["id"]
+    return [t for t in (t1, t2, t3) if t]
 
 
 def init_engine(symbol: str, x0: float) -> dict[str, Any]:
