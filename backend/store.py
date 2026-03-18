@@ -146,13 +146,15 @@ def clear_task_queue_for_symbol(symbol: str) -> None:
 # --------------- Passed Tasks ---------------
 
 def add_passed_task(symbol: str, direction: str, action: str, target_pct: float,
-                    hit_pct: float, hit_price: float, note: str) -> None:
+                    hit_pct: float, hit_price: float, note: str,
+                    task_id: int | None = None) -> None:
     if _use_db():
         from .db import add_passed_task as _add
-        return _add(symbol, direction, action, target_pct, hit_pct, hit_price, note)
+        return _add(symbol, direction, action, target_pct, hit_pct, hit_price, note, task_id=task_id)
     data = _load_json_file(TASK_PASSED_FILE) or []
     data.insert(0, {
         "symbol": symbol.strip().upper(),
+        "task_id": task_id,
         "direction": direction,
         "action": action,
         "target_pct": target_pct,

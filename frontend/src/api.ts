@@ -43,6 +43,7 @@ export type TaskQueueItem = {
 export type PassedTaskItem = {
   id: number;
   symbol: string;
+  task_id?: number | null;
   direction: "UP" | "DOWN";
   action: "BUY" | "SELL";
   target_pct: number;

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useState } from "react";
 import {
   fetchCurrentPrice,
   fetchTaskEngineSymbols,
@@ -95,7 +95,7 @@ function App() {
     if (engineSelectedSymbol) loadEngineInfo(engineSelectedSymbol);
   }, [engineSelectedSymbol]);
 
-  // Poll live prices every 5s — backend serves from WebSocket cache, no rate limit
+  // Poll live prices every 2s — backend serves from WebSocket cache, no rate limit
   useEffect(() => {
     if (page !== "engine") return;
     const poll = () =>
@@ -103,7 +103,7 @@ function App() {
         .then(setLivePrices)
         .catch(() => {});
     poll();
-    const id = setInterval(poll, 5_000);
+    const id = setInterval(poll, 2_000);
     return () => clearInterval(id);
   }, [page]);
 
@@ -235,14 +235,14 @@ function App() {
                   type="text"
                   placeholder="Symbol (e.g. BTCUSDT)"
                   value={engineInitSymbol}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setEngineInitSymbol(e.target.value)}
+                  onChange={(e) => setEngineInitSymbol(e.target.value)}
                 />
                 <input
                   type="text"
                   placeholder="Giá gốc x0 (e.g. 97000)"
                   value={engineInitX0}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setEngineInitX0(e.target.value)}
-                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && handleEngineInit()}
+                  onChange={(e) => setEngineInitX0(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleEngineInit()}
                 />
                 <button
                   type="button"
@@ -257,9 +257,9 @@ function App() {
             {/* Live prices for all engine symbols */}
             {engineSymbols.length > 0 && (
               <section className="card">
-                <h2>Live Prices (Binance WebSocket, auto-refresh 5s)</h2>
+                <h2>Live Prices (Binance WebSocket, auto-refresh ~2s)</h2>
                 <div className="live-prices-grid">
-                  {engineSymbols.map((sym: string) => {
+                  {engineSymbols.map((sym) => {
                     const lp = livePrices[sym];
                     return (
                       <div
@@ -294,14 +294,14 @@ function App() {
                 <select
                   id="engine-symbol"
                   value={engineSelectedSymbol}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                  onChange={(e) => {
                     setEngineSelectedSymbol(e.target.value);
                     setEngineTriggered([]);
                     setEngineMessage("");
                   }}
                 >
                   <option value="">-- Select --</option>
-                  {engineSymbols.map((s: string) => (
+                  {engineSymbols.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
@@ -373,8 +373,8 @@ function App() {
                       type="text"
                       placeholder={`Giá mới cho ${engineSelectedSymbol}`}
                       value={engineNewPrice}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => setEngineNewPrice(e.target.value)}
-                      onKeyDown={(e: KeyboardEvent<HTMLInputElement>) =>
+                      onChange={(e) => setEngineNewPrice(e.target.value)}
+                      onKeyDown={(e) =>
                         e.key === "Enter" && handleEngineSubmitPrice()
                       }
                     />
@@ -399,7 +399,7 @@ function App() {
                   )}
                   {engineTriggered.length > 0 && (
                     <div className="engine-triggered-list">
-                      {engineTriggered.map((t: TaskQueueItem, i: number) => (
+                      {engineTriggered.map((t, i) => (
                         <div
                           key={`trigger-${t.id}-${i}`}
                           className={`engine-triggered-item signal-${t.action.toLowerCase()}`}
@@ -437,7 +437,7 @@ function App() {
                           </td>
                         </tr>
                       ) : (
-                        engineUpTasks.map((t: TaskQueueItem) => (
+                        engineUpTasks.map((t) => (
                           <tr key={t.id}>
                             <td>{t.id}</td>
                             <td>
@@ -487,7 +487,7 @@ function App() {
                           </td>
                         </tr>
                       ) : (
-                        engineDownTasks.map((t: TaskQueueItem) => (
+                        engineDownTasks.map((t) => (
                           <tr key={t.id}>
                             <td>{t.id}</td>
                             <td>
@@ -521,6 +521,7 @@ function App() {
                   <table>
                     <thead>
                       <tr>
+                        <th>Task #</th>
                         <th>Action</th>
                         <th>Direction</th>
                         <th>Target %</th>
@@ -533,13 +534,14 @@ function App() {
                     <tbody>
                       {enginePassedTasks.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="empty">
+                          <td colSpan={8} className="empty">
                             No passed tasks yet
                           </td>
                         </tr>
                       ) : (
                         enginePassedTasks.map((t: PassedTaskItem, i: number) => (
                           <tr key={`passed-${t.id}-${i}`}>
+                            <td>#{t.task_id ?? "?"}</td>
                             <td>
                               <span
                                 className={`action-badge action-${t.action.toLowerCase()}`}
@@ -590,7 +592,7 @@ function App() {
                           </td>
                         </tr>
                       ) : (
-                        engineClosedTasks.map((t: ClosedTaskItem, i: number) => (
+                        engineClosedTasks.map((t, i) => (
                           <tr key={`closed-${t.id}-${i}`}>
                             <td>#{t.closed_task_id}</td>
                             <td>
@@ -646,8 +648,8 @@ function App() {
                   type="text"
                   placeholder="e.g. BTCUSDT, ETHUSDT"
                   value={priceSymbol}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setPriceSymbol(e.target.value)}
-                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && handleGetPrice()}
+                  onChange={(e) => setPriceSymbol(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleGetPrice()}
                   aria-label="Symbol to look up"
                 />
                 <button

@@ -111,6 +111,7 @@ def process_new_price(symbol: str, new_x: float) -> dict[str, Any]:
                 remove_task_from_queue(task["id"])
                 add_passed_task(
                     symbol=symbol,
+                    task_id=task["id"],
                     direction=task["direction"],
                     action=task["action"],
                     target_pct=task["target_pct"],
@@ -169,34 +170,24 @@ def _spawn_after_trigger(
 ) -> list[dict]:
     """
     Spawn sibling pair after trigger.
-    Sau BUY:  DOWN/SELL -2% | UP/SELL +3%
-    Sau SELL:
-      direction=="DOWN" → DOWN/BUY -3% | UP/SELL +3%
-      direction=="UP"   → DOWN/BUY -2.5% | UP/SELL +3%
+    BUY trigger → no spawn
+    SELL + DOWN → DOWN/BUY -3% | DOWN/SELL -2%
+    SELL + UP   → DOWN/BUY -2.5% | UP/SELL +3%
     """
     base = current_pct
 
     if action == "BUY":
-        down_t = base - 2.0
-        up_t = base + 3.0
-        return _spawn_pair(
-            symbol,
-            "DOWN", down_t, "SELL",
-            f"SELL (stop-loss) nếu x giảm thêm 2% (tới {down_t:+.4f}%)",
-            "UP", up_t, "SELL",
-            f"SELL (take-profit) nếu x tăng 3% (tới {up_t:+.4f}%)",
-            add_fn, update_sibling_fn,
-        )
+        return []
 
     if direction == "DOWN":
-        down_t = base - 3.0
-        up_t = base + 3.0
+        buy_t = base - 3.0
+        sell_t = base - 2.0
         return _spawn_pair(
             symbol,
-            "DOWN", down_t, "BUY",
-            f"BUY lại nếu x giảm thêm 3% (tới {down_t:+.4f}%)",
-            "UP", up_t, "SELL",
-            f"SELL nếu x tăng 3% (tới {up_t:+.4f}%)",
+            "DOWN", buy_t, "BUY",
+            f"BUY lại nếu x giảm thêm 3% (tới {buy_t:+.4f}%)",
+            "DOWN", sell_t, "SELL",
+            f"SELL nếu x giảm thêm 2% (tới {sell_t:+.4f}%)",
             add_fn, update_sibling_fn,
         )
 

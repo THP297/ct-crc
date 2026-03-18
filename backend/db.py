@@ -265,14 +265,19 @@ def clear_task_queue_for_symbol(symbol: str) -> None:
 # --------------- Passed Tasks ---------------
 
 def add_passed_task(symbol: str, direction: str, action: str, target_pct: float,
-                    hit_pct: float, hit_price: float, note: str) -> None:
+                    hit_pct: float, hit_price: float, note: str,
+                    task_id: int | None = None) -> None:
     try:
         init_schema()
         with _cursor() as cur:
+            try:
+                cur.execute("ALTER TABLE crypto_task_passed ADD COLUMN IF NOT EXISTS task_id INTEGER")
+            except Exception:
+                pass
             cur.execute(
-                """INSERT INTO crypto_task_passed (symbol, direction, action, target_pct, hit_pct, hit_price, note, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                (symbol.strip().upper(), direction, action, target_pct, hit_pct, hit_price, note,
+                """INSERT INTO crypto_task_passed (symbol, task_id, direction, action, target_pct, hit_pct, hit_price, note, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (symbol.strip().upper(), task_id, direction, action, target_pct, hit_pct, hit_price, note,
                  datetime.now(UTC7).replace(tzinfo=None)),
             )
     except Exception as e:
@@ -284,8 +289,12 @@ def load_passed_tasks(symbol: str) -> list[dict[str, Any]]:
     try:
         init_schema()
         with _cursor() as cur:
+            try:
+                cur.execute("ALTER TABLE crypto_task_passed ADD COLUMN IF NOT EXISTS task_id INTEGER")
+            except Exception:
+                pass
             cur.execute(
-                """SELECT id, symbol, direction, action, target_pct, hit_pct, hit_price, note, created_at
+                """SELECT id, symbol, direction, action, target_pct, hit_pct, hit_price, note, created_at, task_id
                    FROM crypto_task_passed WHERE UPPER(symbol) = UPPER(%s) ORDER BY created_at DESC LIMIT 200""",
                 (symbol.strip(),),
             )
@@ -300,6 +309,7 @@ def load_passed_tasks(symbol: str) -> list[dict[str, Any]]:
                     "hit_price": float(row[6]),
                     "note": row[7] or "",
                     "at": row[8].strftime("%Y-%m-%d %H:%M:%S") if hasattr(row[8], "strftime") else str(row[8]),
+                    "task_id": row[9] if len(row) > 9 else None,
                 })
     except Exception as e:
         logger.warning("db load_passed_tasks: %s", e)
