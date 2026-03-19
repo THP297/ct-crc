@@ -27,11 +27,45 @@ def _spawn_pair(
     return [t for t in (t1, t2) if t]
 
 
+def _cancel_task(symbol: str, task: dict, current_pct: float, current_x: float,
+                 reason: str, sibling_triggered_id: int | None = None) -> None:
+    """Shared helper: remove task from queue and record it as closed."""
+    from .store import remove_task_from_queue, add_closed_task
+    remove_task_from_queue(task["id"])
+    add_closed_task(
+        symbol=symbol,
+        closed_task_id=task["id"],
+        sibling_triggered_id=sibling_triggered_id,
+        direction=task["direction"],
+        action=task["action"],
+        target_pct=task["target_pct"],
+        at_pct=current_pct,
+        at_price=current_x,
+        reason=reason,
+        note=task.get("note", ""),
+    )
+
+
+def _cancel_all_pending_sell_up(symbol: str, current_pct: float,
+                                current_x: float) -> set[int]:
+    """Cancel every pending SELL UP task. Called when SELL DOWN triggers."""
+    from .store import load_task_queue, update_task_sibling_id
+    tasks = load_task_queue(symbol)
+    cancelled: set[int] = set()
+    for t in tasks:
+        if t["direction"] == "UP" and t["action"] == "SELL":
+            sib_id = t.get("sibling_id")
+            if sib_id:
+                update_task_sibling_id(sib_id, 0)
+            _cancel_task(symbol, t, current_pct, current_x,
+                         "SELL DOWN triggered — reset SELL UP cũ")
+            cancelled.add(t["id"])
+    return cancelled
+
+
 def _cancel_sibling(symbol: str, triggered_task: dict, current_pct: float,
                     current_x: float, tasks: list[dict]) -> None:
-    """Close the sibling of a triggered task."""
-    from .store import remove_task_from_queue, add_closed_task
-
+    """Cancel the sibling of a triggered task (only if sibling is SELL)."""
     sibling_id = triggered_task.get("sibling_id")
     if not sibling_id:
         return
@@ -43,18 +77,10 @@ def _cancel_sibling(symbol: str, triggered_task: dict, current_pct: float,
     if sibling["action"] == "BUY":
         return
 
-    remove_task_from_queue(sibling_id)
-    add_closed_task(
-        symbol=symbol,
-        closed_task_id=sibling_id,
+    _cancel_task(
+        symbol, sibling, current_pct, current_x,
+        f"Sibling #{triggered_task['id']} [{triggered_task['direction']}] triggered",
         sibling_triggered_id=triggered_task["id"],
-        direction=sibling["direction"],
-        action=sibling["action"],
-        target_pct=sibling["target_pct"],
-        at_pct=current_pct,
-        at_price=current_x,
-        reason=f"Sibling #{triggered_task['id']} [{triggered_task['direction']}] triggered",
-        note=sibling.get("note", ""),
     )
 
 
@@ -124,11 +150,13 @@ def process_new_price(symbol: str, new_x: float) -> dict[str, Any]:
 
                 new_tasks = _spawn_after_trigger(
                     symbol, task["direction"], task["action"],
-                    current_pct, add_task_to_queue, update_task_sibling_id,
+                    current_pct, new_x,
+                    add_task_to_queue, update_task_sibling_id,
                 )
                 triggered.append(task)
                 spawned.extend(new_tasks)
                 triggered_any = True
+                break  # re-load queue — _cancel_all_pending_sell_up may have mutated it
 
         if not triggered_any:
             break
@@ -165,14 +193,19 @@ def _spawn_after_trigger(
     direction: str,
     action: str,
     current_pct: float,
+    current_x: float,
     add_fn,
     update_sibling_fn,
 ) -> list[dict]:
     """
     Spawn tasks after trigger.
-    BUY trigger → no spawn
-    SELL + DOWN → DOWN/BUY -3% ↔ DOWN/SELL -2%
-    SELL + UP   → t1: DOWN/BUY -2.5% (no sibling) | t2: DOWN/SELL -2% ↔ t3: UP/SELL +3%
+    BUY trigger  → no spawn
+    SELL + DOWN  → cancel all pending SELL UP, then spawn:
+                     DOWN BUY  @ base-3%  (no sibling)
+                     DOWN SELL @ base-2%  ↔  UP SELL @ base+3%
+    SELL + UP    → spawn:
+                     DOWN BUY  @ base-2.5% (no sibling)
+                     DOWN SELL @ base-2%   ↔  UP SELL @ base+3%
     """
     base = current_pct
 
@@ -180,30 +213,34 @@ def _spawn_after_trigger(
         return []
 
     if direction == "DOWN":
-        buy_t = base - 3.0
-        sell_t = base - 2.0
-        return _spawn_pair(
-            symbol,
-            "DOWN", buy_t, "BUY",
-            f"BUY lại nếu x giảm thêm 3% (tới {buy_t:+.4f}%)",
-            "DOWN", sell_t, "SELL",
-            f"SELL nếu x giảm thêm 2% (tới {sell_t:+.4f}%)",
-            add_fn, update_sibling_fn,
-        )
+        _cancel_all_pending_sell_up(symbol, current_pct, current_x)
+
+        t_buy = add_fn(symbol, "DOWN", base - 3.0, "BUY",
+                       f"BUY lại nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)")
+        t_sell_down = add_fn(symbol, "DOWN", base - 2.0, "SELL",
+                             f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
+        t_sell_up = add_fn(symbol, "UP", base + 3.0, "SELL",
+                           f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
+        if t_sell_down and t_sell_up:
+            update_sibling_fn(t_sell_down["id"], t_sell_up["id"])
+            update_sibling_fn(t_sell_up["id"], t_sell_down["id"])
+            t_sell_down["sibling_id"] = t_sell_up["id"]
+            t_sell_up["sibling_id"] = t_sell_down["id"]
+        return [t for t in (t_buy, t_sell_down, t_sell_up) if t]
 
     # direction == "UP" → 3 tasks
-    t1 = add_fn(symbol, "DOWN", base - 2.5, "BUY",
-                f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)")
-    t2 = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
-    t3 = add_fn(symbol, "UP", base + 3.0, "SELL",
-                f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
-    if t2 and t3:
-        update_sibling_fn(t2["id"], t3["id"])
-        update_sibling_fn(t3["id"], t2["id"])
-        t2["sibling_id"] = t3["id"]
-        t3["sibling_id"] = t2["id"]
-    return [t for t in (t1, t2, t3) if t]
+    t_buy = add_fn(symbol, "DOWN", base - 2.5, "BUY",
+                   f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)")
+    t_sell_down = add_fn(symbol, "DOWN", base - 2.0, "SELL",
+                         f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
+    t_sell_up = add_fn(symbol, "UP", base + 3.0, "SELL",
+                       f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
+    if t_sell_down and t_sell_up:
+        update_sibling_fn(t_sell_down["id"], t_sell_up["id"])
+        update_sibling_fn(t_sell_up["id"], t_sell_down["id"])
+        t_sell_down["sibling_id"] = t_sell_up["id"]
+        t_sell_up["sibling_id"] = t_sell_down["id"]
+    return [t for t in (t_buy, t_sell_down, t_sell_up) if t]
 
 
 def init_engine(symbol: str, x0: float) -> dict[str, Any]:
