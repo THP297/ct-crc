@@ -257,3 +257,16 @@ def load_live_prices() -> dict[str, float]:
     if not data or not isinstance(data, dict):
         return {}
     return {k: float(v) for k, v in data.items()}
+
+
+# --------------- Batched Info (single DB connection) ---------------
+
+def load_engine_info_batched(symbol: str) -> dict[str, Any]:
+    if _use_db():
+        from .db import load_engine_info_batched as _load
+        return _load(symbol)
+    state = load_task_engine_state(symbol)
+    tasks = load_task_queue(symbol)
+    passed = load_passed_tasks(symbol)
+    closed = load_closed_tasks(symbol)
+    return {"state": state, "tasks": tasks, "passed": passed, "closed": closed}

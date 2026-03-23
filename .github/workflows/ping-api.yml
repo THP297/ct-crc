@@ -5,8 +5,8 @@ name: Ping API check
 
 on:
   schedule:
-    # Every 5 minutes (UTC)
-    - cron: "*/5 * * * *"
+    # Every 14 minutes (UTC) — keeps Render awake without excessive DB load
+    - cron: "*/14 * * * *"
   workflow_dispatch: # Allow manual run from Actions tab
 
 jobs:

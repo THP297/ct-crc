@@ -196,11 +196,11 @@ def _rest_poll_once(symbols: list[str]) -> dict[str, float]:
 # ── Public API (same interface as before) ─────────────────────────────────────
 
 def get_latest_prices() -> dict[str, float]:
-    from .store import load_live_prices
-    merged = load_live_prices()
     with _lock:
-        merged.update(_latest_prices)
-    return merged
+        if _latest_prices:
+            return dict(_latest_prices)
+    from .store import load_live_prices
+    return load_live_prices()
 
 
 def get_price(symbol: str) -> float | None:

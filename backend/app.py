@@ -144,13 +144,12 @@ def api_task_engine_info():
 
 @app.route("/api/task-engine/live-prices")
 def api_live_prices():
-    from .realtime_poller import poll_now
+    from .realtime_poller import get_latest_prices
     try:
-        prices = poll_now()
-    except Exception as e:
-        logging.warning("live-prices poll: %s", e)
-        from .realtime_poller import get_latest_prices
         prices = get_latest_prices()
+    except Exception as e:
+        logging.warning("live-prices: %s", e)
+        prices = {}
     return jsonify(prices or {})
 
 

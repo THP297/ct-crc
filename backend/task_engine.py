@@ -305,22 +305,17 @@ def init_engine(symbol: str, x0: float) -> dict[str, Any]:
 
 
 def get_engine_info(symbol: str) -> dict[str, Any]:
-    from .store import (
-        load_task_engine_state, load_task_queue,
-        load_passed_tasks, load_closed_tasks,
-    )
+    from .store import load_engine_info_batched
 
-    state = load_task_engine_state(symbol)
+    info = load_engine_info_batched(symbol)
+    state = info["state"]
     if state is None:
         return {
             "state": None, "up_tasks": [], "down_tasks": [],
             "passed_tasks": [], "closed_tasks": [],
         }
 
-    tasks = load_task_queue(symbol)
-    passed = load_passed_tasks(symbol)
-    closed = load_closed_tasks(symbol)
-
+    tasks = info["tasks"]
     up_tasks = sorted(
         [t for t in tasks if t["direction"] == "UP"],
         key=lambda t: t["target_pct"],
@@ -335,8 +330,8 @@ def get_engine_info(symbol: str) -> dict[str, Any]:
         "state": state,
         "up_tasks": up_tasks,
         "down_tasks": down_tasks,
-        "passed_tasks": passed,
-        "closed_tasks": closed,
+        "passed_tasks": info["passed"],
+        "closed_tasks": info["closed"],
     }
 
 
