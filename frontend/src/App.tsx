@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   fetchCurrentPrice,
-  fetchTaskEngineSymbols,
   fetchLivePrices,
   fetchSettings,
   saveSettings,
@@ -112,9 +111,6 @@ function App() {
     });
   };
 
-  // Also load old symbol list for live prices
-  const loadSymbolsForPolling = () =>
-    fetchTaskEngineSymbols().catch(() => []);
 
   useEffect(() => {
     loadAllSections().then(({ secs, syms }) => {
@@ -203,7 +199,7 @@ function App() {
       setNewSectionName("");
       setNewSectionX0("");
       setNewSectionQty("");
-      const { secs, syms } = await loadAllSections();
+      await loadAllSections();
       setSelectedSymbol(sym);
       if (result.section) setSelectedSectionId(result.section.id);
       setToast(true);
@@ -218,9 +214,9 @@ function App() {
       setEngineMessage(result.error);
     } else {
       setEngineMessage("Section deleted.");
-      const { secs, syms } = await loadAllSections();
+      const { secs: updatedSecs } = await loadAllSections();
       if (selectedSectionId === secId) {
-        const next = secs.find((s) => s.symbol === selectedSymbol);
+        const next = updatedSecs.find((s) => s.symbol === selectedSymbol);
         setSelectedSectionId(next ? next.id : null);
       }
     }
@@ -235,10 +231,10 @@ function App() {
       return;
     await deleteEngine(sym);
     setEngineMessage(`${sym} deleted.`);
-    const { secs, syms } = await loadAllSections();
+    const { secs: remaining, syms: remainingSyms } = await loadAllSections();
     if (selectedSymbol === sym) {
-      setSelectedSymbol(syms[0] || "");
-      setSelectedSectionId(secs[0]?.id ?? null);
+      setSelectedSymbol(remainingSyms[0] || "");
+      setSelectedSectionId(remaining[0]?.id ?? null);
     }
   };
 
