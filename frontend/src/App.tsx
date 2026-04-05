@@ -2,20 +2,25 @@ import { useEffect, useState } from "react";
 import {
   fetchCurrentPrice,
   fetchTaskEngineSymbols,
-  initTaskEngine,
-  submitTaskEnginePrice,
-  fetchTaskEngineInfo,
   fetchLivePrices,
   fetchSettings,
   saveSettings,
   fetchSummary,
-  type TaskEngineState,
+  fetchSections,
+  createSection,
+  fetchSectionInfo,
+  deleteSection,
+  priceBroadcast,
+  deleteEngine,
+  fetchPriceHistory,
   type TaskQueueItem,
   type PassedTaskItem,
   type ClosedTaskItem,
   type LivePrices,
   type SettingsItem,
   type SummarySymbol,
+  type Section,
+  type PriceHistoryItem,
 } from "./api";
 import "./App.css";
 
@@ -27,7 +32,9 @@ function formatPrice(price: number): string {
 }
 
 function App() {
-  const [page, setPage] = useState<"engine" | "price" | "settings" | "summary">("engine");
+  const [page, setPage] = useState<
+    "engine" | "price" | "settings" | "summary"
+  >("engine");
   const [toast, setToast] = useState(false);
 
   // Current price
@@ -37,79 +44,104 @@ function App() {
   >(null);
   const [priceLoading, setPriceLoading] = useState(false);
 
-  // Task Engine
+  // Sections
+  const [allSections, setAllSections] = useState<Section[]>([]);
   const [engineSymbols, setEngineSymbols] = useState<string[]>([]);
-  const [engineSelectedSymbol, setEngineSelectedSymbol] = useState("");
-  const [engineState, setEngineState] = useState<TaskEngineState | null>(null);
-  const [engineUpTasks, setEngineUpTasks] = useState<TaskQueueItem[]>([]);
-  const [engineDownTasks, setEngineDownTasks] = useState<TaskQueueItem[]>([]);
-  const [enginePassedTasks, setEnginePassedTasks] = useState<PassedTaskItem[]>(
-    [],
+  const [selectedSymbol, setSelectedSymbol] = useState("");
+  const [selectedSectionId, setSelectedSectionId] = useState<number | null>(
+    null
   );
-  const [engineClosedTasks, setEngineClosedTasks] = useState<ClosedTaskItem[]>(
-    [],
-  );
-  const [engineNewPrice, setEngineNewPrice] = useState("");
-  const [engineInitSymbol, setEngineInitSymbol] = useState("");
-  const [engineInitX0, setEngineInitX0] = useState("");
-  const [engineInitCoinQty, setEngineInitCoinQty] = useState("");
-  const [engineTriggered, setEngineTriggered] = useState<TaskQueueItem[]>([]);
+  const [sectionUpTasks, setSectionUpTasks] = useState<TaskQueueItem[]>([]);
+  const [sectionDownTasks, setSectionDownTasks] = useState<TaskQueueItem[]>([]);
+  const [sectionPassedTasks, setSectionPassedTasks] = useState<
+    PassedTaskItem[]
+  >([]);
+  const [sectionClosedTasks, setSectionClosedTasks] = useState<
+    ClosedTaskItem[]
+  >([]);
+
+  // Create section form
+  const [newSectionSymbol, setNewSectionSymbol] = useState("");
+  const [newSectionName, setNewSectionName] = useState("");
+  const [newSectionX0, setNewSectionX0] = useState("");
+  const [newSectionQty, setNewSectionQty] = useState("");
+
+  // Price broadcast
+  const [broadcastPrice, setBroadcastPrice] = useState("");
   const [engineMessage, setEngineMessage] = useState("");
+
   const [loading, setLoading] = useState(true);
 
-  // Live prices from realtime poller
+  // Live prices
   const [livePrices, setLivePrices] = useState<LivePrices>({});
+
+  // Price history
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryItem[]>([]);
 
   // Settings
   const [settingsList, setSettingsList] = useState<SettingsItem[]>([]);
-  const [settingsEdits, setSettingsEdits] = useState<Record<string, { sell_down_pct: string; sell_up_pct: string }>>({});
+  const [settingsEdits, setSettingsEdits] = useState<
+    Record<string, { sell_down_pct: string; sell_up_pct: string }>
+  >({});
   const [settingsMessage, setSettingsMessage] = useState("");
 
   // Summary
   const [summaryData, setSummaryData] = useState<SummarySymbol[]>([]);
 
-  const loadEngineSymbols = () =>
-    fetchTaskEngineSymbols().then((syms) => {
-      setEngineSymbols(syms);
-      return syms;
-    });
+  const loadAllSections = async () => {
+    const secs = await fetchSections();
+    setAllSections(secs);
+    const syms = [...new Set(secs.map((s) => s.symbol))].sort();
+    setEngineSymbols(syms);
+    return { secs, syms };
+  };
 
-  const loadEngineInfo = (sym: string) => {
-    if (!sym) {
-      setEngineState(null);
-      setEngineUpTasks([]);
-      setEngineDownTasks([]);
-      setEnginePassedTasks([]);
-      setEngineClosedTasks([]);
+  const loadSectionInfo = (sectionId: number | null) => {
+    if (!sectionId) {
+      setSectionUpTasks([]);
+      setSectionDownTasks([]);
+      setSectionPassedTasks([]);
+      setSectionClosedTasks([]);
       return;
     }
-    fetchTaskEngineInfo(sym).then((info) => {
-      setEngineState(info.state);
-      setEngineUpTasks(info.up_tasks ?? []);
-      setEngineDownTasks(info.down_tasks ?? []);
-      setEnginePassedTasks(info.passed_tasks ?? []);
-      setEngineClosedTasks(info.closed_tasks ?? []);
+    fetchSectionInfo(sectionId).then((info) => {
+      setSectionUpTasks(info.up_tasks ?? []);
+      setSectionDownTasks(info.down_tasks ?? []);
+      setSectionPassedTasks(info.passed_tasks ?? []);
+      setSectionClosedTasks(info.closed_tasks ?? []);
     });
   };
 
+  // Also load old symbol list for live prices
+  const loadSymbolsForPolling = () =>
+    fetchTaskEngineSymbols().catch(() => []);
+
   useEffect(() => {
-    loadEngineSymbols().then((syms) => {
-      if (!engineSelectedSymbol && syms && syms.length > 0) {
-        setEngineSelectedSymbol(syms[0]);
+    loadAllSections().then(({ secs, syms }) => {
+      if (!selectedSymbol && syms.length > 0) {
+        setSelectedSymbol(syms[0]);
+        const first = secs.find((s) => s.symbol === syms[0]);
+        if (first) setSelectedSectionId(first.id);
       }
       setLoading(false);
     });
   }, []);
 
   useEffect(() => {
-    if (page === "engine") loadEngineSymbols();
+    if (page === "engine") loadAllSections();
   }, [page]);
 
   useEffect(() => {
-    if (engineSelectedSymbol) loadEngineInfo(engineSelectedSymbol);
-  }, [engineSelectedSymbol]);
+    if (selectedSectionId) {
+      loadSectionInfo(selectedSectionId);
+      const sec = allSections.find((s) => s.id === selectedSectionId);
+      if (sec) {
+        fetchPriceHistory(sec.symbol, 15).then(setPriceHistory);
+      }
+    }
+  }, [selectedSectionId]);
 
-  // Poll live prices every 30s — backend serves from WebSocket in-memory cache
+  // Poll live prices
   useEffect(() => {
     if (page !== "engine") return;
     const poll = () =>
@@ -121,12 +153,15 @@ function App() {
     return () => clearInterval(id);
   }, [page]);
 
-  // Load settings when settings page is shown
+  // Settings
   useEffect(() => {
     if (page !== "settings") return;
     fetchSettings().then((items) => {
       setSettingsList(items);
-      const edits: Record<string, { sell_down_pct: string; sell_up_pct: string }> = {};
+      const edits: Record<
+        string,
+        { sell_down_pct: string; sell_up_pct: string }
+      > = {};
       for (const s of items) {
         edits[s.symbol] = {
           sell_down_pct: String(s.sell_down_pct),
@@ -137,76 +172,94 @@ function App() {
     });
   }, [page]);
 
-  // Load summary when summary page is shown
+  // Summary
   useEffect(() => {
     if (page !== "summary") return;
     fetchSummary().then(setSummaryData);
   }, [page]);
 
+  const selectedSection = allSections.find(
+    (s) => s.id === selectedSectionId
+  );
+  const symbolSections = allSections.filter(
+    (s) => s.symbol === selectedSymbol
+  );
+
   // Handlers
-  const handleEngineInit = async () => {
-    const sym = engineInitSymbol.trim().toUpperCase();
-    const x0 = parseFloat(engineInitX0.replace(/,/g, "").trim());
-    if (!sym || isNaN(x0) || x0 <= 0) return;
-    const coinQtyVal = parseFloat(engineInitCoinQty.replace(/,/g, "").trim()) || 0;
-    const result = await initTaskEngine(sym, x0, coinQtyVal);
+  const handleCreateSection = async () => {
+    const sym = newSectionSymbol.trim().toUpperCase();
+    const name = newSectionName.trim();
+    const x0 = parseFloat(newSectionX0.replace(/,/g, "").trim());
+    if (!sym || !name || isNaN(x0) || x0 <= 0) return;
+    const qty = parseFloat(newSectionQty.replace(/,/g, "").trim()) || 0;
+    const result = await createSection(sym, name, x0, qty);
     if (result.error) {
       setEngineMessage(result.error);
     } else {
       setEngineMessage(
-        `Initialized ${sym} with x0 = ${formatPrice(
-          x0,
-        )}, qty = ${coinQtyVal}. Sibling pair spawned (SELL -2% / SELL +3%).`,
+        `Created section "${name}" for ${sym} with x0=${formatPrice(x0)}, qty=${qty}`
       );
-      setEngineInitSymbol("");
-      setEngineInitX0("");
-      setEngineInitCoinQty("");
-      if (result.state) setEngineState(result.state);
-      setEngineUpTasks(result.up_tasks ?? []);
-      setEngineDownTasks(result.down_tasks ?? []);
-      setEnginePassedTasks([]);
-      setEngineClosedTasks([]);
-      setEngineTriggered([]);
-      await loadEngineSymbols();
-      setEngineSelectedSymbol(sym);
+      setNewSectionSymbol("");
+      setNewSectionName("");
+      setNewSectionX0("");
+      setNewSectionQty("");
+      const { secs, syms } = await loadAllSections();
+      setSelectedSymbol(sym);
+      if (result.section) setSelectedSectionId(result.section.id);
       setToast(true);
       setTimeout(() => setToast(false), 2000);
     }
   };
 
-  const handleEngineSubmitPrice = async () => {
-    if (!engineSelectedSymbol) return;
-    const price = parseFloat(engineNewPrice.replace(/,/g, "").trim());
-    if (isNaN(price) || price <= 0) return;
-    const result = await submitTaskEnginePrice(engineSelectedSymbol, price);
+  const handleDeleteSection = async (secId: number) => {
+    if (!confirm("Delete this section and all its tasks?")) return;
+    const result = await deleteSection(secId);
     if (result.error) {
       setEngineMessage(result.error);
-      setEngineTriggered([]);
     } else {
-      if (result.state) setEngineState(result.state);
-      setEngineUpTasks(result.up_tasks ?? []);
-      setEngineDownTasks(result.down_tasks ?? []);
-      setEnginePassedTasks(result.passed_tasks ?? []);
-      setEngineClosedTasks(result.closed_tasks ?? []);
-      setEngineTriggered(result.triggered ?? []);
-      if (result.message) {
-        setEngineMessage(result.message);
-      } else if (result.triggered && result.triggered.length > 0) {
-        const signals = result.triggered
-          .map(
-            (t) => `${t.action} (${t.direction} ${t.target_pct.toFixed(2)}%)`,
-          )
-          .join(", ");
-        setEngineMessage(`Triggered: ${signals}`);
-      } else {
-        setEngineMessage(
-          `Updated. pct = ${result.state?.current_pct?.toFixed(
-            4,
-          )}%, delta = ${result.delta_pct?.toFixed(4)}%`,
-        );
+      setEngineMessage("Section deleted.");
+      const { secs, syms } = await loadAllSections();
+      if (selectedSectionId === secId) {
+        const next = secs.find((s) => s.symbol === selectedSymbol);
+        setSelectedSectionId(next ? next.id : null);
       }
     }
-    setEngineNewPrice("");
+  };
+
+  const handleDeleteEngine = async (sym: string) => {
+    if (
+      !confirm(
+        `Delete ALL data for ${sym}? (sections, tasks, settings, history)`
+      )
+    )
+      return;
+    await deleteEngine(sym);
+    setEngineMessage(`${sym} deleted.`);
+    const { secs, syms } = await loadAllSections();
+    if (selectedSymbol === sym) {
+      setSelectedSymbol(syms[0] || "");
+      setSelectedSectionId(secs[0]?.id ?? null);
+    }
+  };
+
+  const handlePriceBroadcast = async () => {
+    if (!selectedSymbol) return;
+    const price = parseFloat(broadcastPrice.replace(/,/g, "").trim());
+    if (isNaN(price) || price <= 0) return;
+    const result = await priceBroadcast(selectedSymbol, price);
+    if (result.error) {
+      setEngineMessage(result.error);
+    } else {
+      const n = result.sections_updated ?? 0;
+      const t = result.total_triggered ?? 0;
+      setEngineMessage(
+        `Updated ${n} section(s) for ${selectedSymbol} @ ${formatPrice(price)}. ${t} task(s) triggered.`
+      );
+      await loadAllSections();
+      if (selectedSectionId) loadSectionInfo(selectedSectionId);
+      fetchPriceHistory(selectedSymbol, 15).then(setPriceHistory);
+    }
+    setBroadcastPrice("");
   };
 
   const handleGetPrice = async () => {
@@ -259,72 +312,87 @@ function App() {
         {page === "engine" && (
           <>
             <p className="sub">
-              Task Engine: nhập giá mới cho symbol, hệ thống tự tính % so với
-              giá gốc (x0) và trigger BUY/SELL dựa trên queue UP/DOWN.
+              Task Engine: tạo section cho mỗi lần mua coin. Mỗi section có x0,
+              coin_qty riêng. Cập nhật giá sẽ broadcast tới tất cả section
+              cùng symbol.
             </p>
 
-            {/* Init new engine */}
+            {/* Create section */}
             <section className="card">
-              <h2>Initialize Engine</h2>
+              <h2>Create Section</h2>
               <p className="sub">
-                Nhập symbol (e.g. BTCUSDT, ETHUSDT) và giá gốc (x0) để khởi tạo
-                engine.
+                Mỗi lần mua coin ở giá khác nhau = 1 section. Nhập symbol, tên,
+                giá mua (x0), số lượng coin.
               </p>
               <div className="engine-init-form">
                 <input
                   type="text"
-                  placeholder="Symbol (e.g. BTCUSDT)"
-                  value={engineInitSymbol}
-                  onChange={(e) => setEngineInitSymbol(e.target.value)}
+                  placeholder="Symbol (e.g. ETHUSDT)"
+                  value={newSectionSymbol}
+                  onChange={(e) => setNewSectionSymbol(e.target.value)}
                 />
                 <input
                   type="text"
-                  placeholder="Giá gốc x0 (e.g. 97000)"
-                  value={engineInitX0}
-                  onChange={(e) => setEngineInitX0(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleEngineInit()}
+                  placeholder="Tên section (e.g. S1)"
+                  value={newSectionName}
+                  onChange={(e) => setNewSectionName(e.target.value)}
                 />
                 <input
                   type="text"
-                  placeholder="Số lượng coin (e.g. 10)"
-                  value={engineInitCoinQty}
-                  onChange={(e) => setEngineInitCoinQty(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleEngineInit()}
+                  placeholder="Giá mua x0"
+                  value={newSectionX0}
+                  onChange={(e) => setNewSectionX0(e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="Số lượng coin"
+                  value={newSectionQty}
+                  onChange={(e) => setNewSectionQty(e.target.value)}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && handleCreateSection()
+                  }
                 />
                 <button
                   type="button"
-                  onClick={handleEngineInit}
-                  disabled={!engineInitSymbol.trim() || !engineInitX0.trim()}
+                  onClick={handleCreateSection}
+                  disabled={
+                    !newSectionSymbol.trim() ||
+                    !newSectionName.trim() ||
+                    !newSectionX0.trim()
+                  }
                 >
-                  Init
+                  Create
                 </button>
               </div>
             </section>
 
-            {/* Live prices for all engine symbols */}
+            {/* Live prices */}
             {engineSymbols.length > 0 && (
               <section className="card">
-                <h2>Live Prices (Binance WebSocket, auto-refresh 30s)</h2>
+                <h2>Live Prices (auto-refresh 30s)</h2>
                 <div className="live-prices-grid">
                   {engineSymbols.map((sym) => {
                     const lp = livePrices[sym];
                     return (
                       <div
                         key={sym}
-                        className={`live-price-card ${
-                          engineSelectedSymbol === sym
-                            ? "live-price-selected"
-                            : ""
-                        }`}
+                        className={`live-price-card ${selectedSymbol === sym ? "live-price-selected" : ""}`}
                         onClick={() => {
-                          setEngineSelectedSymbol(sym);
-                          setEngineTriggered([]);
+                          setSelectedSymbol(sym);
+                          const first = allSections.find(
+                            (s) => s.symbol === sym
+                          );
+                          setSelectedSectionId(first?.id ?? null);
                           setEngineMessage("");
                         }}
                       >
                         <span className="live-price-symbol">{sym}</span>
                         <span className="live-price-value">
                           {lp !== undefined ? formatPrice(lp) : "—"}
+                        </span>
+                        <span className="live-price-sections">
+                          {allSections.filter((s) => s.symbol === sym).length}{" "}
+                          section(s)
                         </span>
                       </div>
                     );
@@ -333,144 +401,170 @@ function App() {
               </section>
             )}
 
-            {/* Select symbol */}
-            <section className="card">
-              <h2>Select Symbol</h2>
-              <div className="filter-row">
-                <label htmlFor="engine-symbol">Symbol:</label>
-                <select
-                  id="engine-symbol"
-                  value={engineSelectedSymbol}
-                  onChange={(e) => {
-                    setEngineSelectedSymbol(e.target.value);
-                    setEngineTriggered([]);
-                    setEngineMessage("");
-                  }}
-                >
-                  <option value="">-- Select --</option>
-                  {engineSymbols.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
+            {/* Symbol & sections selector */}
+            {selectedSymbol && (
+              <section className="card">
+                <div className="section-header-row">
+                  <h2>
+                    {selectedSymbol} — Sections ({symbolSections.length})
+                  </h2>
+                  <button
+                    type="button"
+                    className="btn-danger btn-sm"
+                    onClick={() => handleDeleteEngine(selectedSymbol)}
+                  >
+                    Delete {selectedSymbol}
+                  </button>
+                </div>
+                <div className="sections-grid">
+                  {symbolSections.map((sec) => (
+                    <div
+                      key={sec.id}
+                      className={`section-card ${selectedSectionId === sec.id ? "section-selected" : ""}`}
+                      onClick={() => setSelectedSectionId(sec.id)}
+                    >
+                      <div className="section-card-header">
+                        <strong>{sec.name}</strong>
+                        <button
+                          type="button"
+                          className="btn-danger btn-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteSection(sec.id);
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div className="section-card-stats">
+                        <span>x0: {formatPrice(sec.x0)}</span>
+                        <span>
+                          now: {formatPrice(sec.current_x)}
+                        </span>
+                        <span
+                          className={
+                            sec.current_pct >= 0 ? "pct-up" : "pct-down"
+                          }
+                        >
+                          {sec.current_pct >= 0 ? "+" : ""}
+                          {sec.current_pct.toFixed(4)}%
+                        </span>
+                        <span>qty: {sec.coin_qty}</span>
+                      </div>
+                    </div>
                   ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => loadEngineInfo(engineSelectedSymbol)}
-                  disabled={!engineSelectedSymbol}
-                >
-                  Refresh
-                </button>
-              </div>
-            </section>
+                </div>
 
-            {engineSelectedSymbol && engineState && (
+                {/* Price broadcast */}
+                <div className="engine-price-form" style={{ marginTop: "1rem" }}>
+                  <input
+                    type="text"
+                    placeholder={`Giá mới cho ${selectedSymbol} (broadcast)`}
+                    value={broadcastPrice}
+                    onChange={(e) => setBroadcastPrice(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && handlePriceBroadcast()
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={handlePriceBroadcast}
+                    disabled={!broadcastPrice.trim()}
+                  >
+                    Broadcast
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      loadAllSections();
+                      if (selectedSectionId)
+                        loadSectionInfo(selectedSectionId);
+                    }}
+                    style={{ background: "var(--accent-alt)" }}
+                  >
+                    Refresh
+                  </button>
+                </div>
+                {engineMessage && (
+                  <div className="engine-message">{engineMessage}</div>
+                )}
+              </section>
+            )}
+
+            {/* Price history */}
+            {selectedSymbol && priceHistory.length > 0 && (
+              <section className="card">
+                <h2>Price History — {selectedSymbol} (last {priceHistory.length})</h2>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Price</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {priceHistory.map((h, i) => (
+                      <tr key={`ph-${i}`}>
+                        <td>{formatPrice(h.price)}</td>
+                        <td>{h.at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
+
+            {/* Selected section detail */}
+            {selectedSection && (
               <>
-                {/* Engine state */}
                 <section className="card">
-                  <h2>Engine State: {engineState.symbol}</h2>
+                  <h2>
+                    Section: {selectedSection.name} [{selectedSection.symbol}]
+                  </h2>
                   <div className="engine-state-grid">
                     <div className="engine-stat">
                       <span className="engine-stat-label">Giá gốc (x0)</span>
                       <span className="engine-stat-value">
-                        {formatPrice(engineState.x0)}
+                        {formatPrice(selectedSection.x0)}
                       </span>
                     </div>
                     <div className="engine-stat">
                       <span className="engine-stat-label">Giá hiện tại</span>
                       <span className="engine-stat-value">
-                        {formatPrice(engineState.current_x)}
+                        {formatPrice(selectedSection.current_x)}
                       </span>
                     </div>
                     <div className="engine-stat">
                       <span className="engine-stat-label">% so với x0</span>
                       <span
-                        className={`engine-stat-value ${
-                          engineState.current_pct >= 0 ? "pct-up" : "pct-down"
-                        }`}
+                        className={`engine-stat-value ${selectedSection.current_pct >= 0 ? "pct-up" : "pct-down"}`}
                       >
-                        {engineState.current_pct >= 0 ? "+" : ""}
-                        {engineState.current_pct.toFixed(4)}%
+                        {selectedSection.current_pct >= 0 ? "+" : ""}
+                        {selectedSection.current_pct.toFixed(4)}%
                       </span>
                     </div>
                     <div className="engine-stat">
                       <span className="engine-stat-label">Coin Qty</span>
                       <span className="engine-stat-value">
-                        {engineState.coin_qty ?? 0}
+                        {selectedSection.coin_qty}
                       </span>
                     </div>
-                    <div className="engine-stat">
-                      <span className="engine-stat-label">Seeded</span>
-                      <span className="engine-stat-value">
-                        {engineState.seeded ? "Yes" : "No"}
-                      </span>
-                    </div>
-                    {livePrices[engineState.symbol] !== undefined && (
+                    {livePrices[selectedSection.symbol] !== undefined && (
                       <div className="engine-stat engine-stat-live">
                         <span className="engine-stat-label">
-                          Live Price (Binance)
+                          Live (Binance)
                         </span>
                         <span className="engine-stat-value">
-                          {formatPrice(livePrices[engineState.symbol])}
+                          {formatPrice(livePrices[selectedSection.symbol])}
                         </span>
                       </div>
                     )}
                   </div>
                 </section>
 
-                {/* Input new price */}
-                <section className="card">
-                  <h2>Nhập giá observer mới</h2>
-                  <div className="engine-price-form">
-                    <input
-                      type="text"
-                      placeholder={`Giá mới cho ${engineSelectedSymbol}`}
-                      value={engineNewPrice}
-                      onChange={(e) => setEngineNewPrice(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && handleEngineSubmitPrice()
-                      }
-                    />
-                    <button
-                      type="button"
-                      onClick={handleEngineSubmitPrice}
-                      disabled={!engineNewPrice.trim()}
-                    >
-                      Submit
-                    </button>
-                  </div>
-                  {engineMessage && (
-                    <div
-                      className={`engine-message ${
-                        engineTriggered.length > 0
-                          ? "engine-message-trigger"
-                          : ""
-                      }`}
-                    >
-                      {engineMessage}
-                    </div>
-                  )}
-                  {engineTriggered.length > 0 && (
-                    <div className="engine-triggered-list">
-                      {engineTriggered.map((t, i) => (
-                        <div
-                          key={`trigger-${t.id}-${i}`}
-                          className={`engine-triggered-item signal-${t.action.toLowerCase()}`}
-                        >
-                          <strong>{t.action}</strong> — {t.direction} target{" "}
-                          {t.target_pct.toFixed(4)}%
-                          <span className="engine-triggered-note">
-                            {t.note}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
                 {/* Queue UP */}
                 <section className="card">
-                  <h2>Queue UP (trigger khi current_pct &ge; target)</h2>
+                  <h2>Queue UP (trigger khi pct &ge; target)</h2>
                   <table>
                     <thead>
                       <tr>
@@ -483,14 +577,14 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {engineUpTasks.length === 0 ? (
+                      {sectionUpTasks.length === 0 ? (
                         <tr>
                           <td colSpan={6} className="empty">
                             No UP tasks
                           </td>
                         </tr>
                       ) : (
-                        engineUpTasks.map((t) => (
+                        sectionUpTasks.map((t) => (
                           <tr key={t.id}>
                             <td>{t.id}</td>
                             <td>
@@ -506,10 +600,13 @@ function App() {
                             </td>
                             <td>
                               {formatPrice(
-                                engineState.x0 * (1 + t.target_pct / 100),
+                                selectedSection.x0 *
+                                  (1 + t.target_pct / 100)
                               )}
                             </td>
-                            <td>{t.sibling_id ? `#${t.sibling_id}` : "—"}</td>
+                            <td>
+                              {t.sibling_id ? `#${t.sibling_id}` : "—"}
+                            </td>
                             <td>{t.note}</td>
                           </tr>
                         ))
@@ -520,7 +617,7 @@ function App() {
 
                 {/* Queue DOWN */}
                 <section className="card">
-                  <h2>Queue DOWN (trigger khi current_pct &le; target)</h2>
+                  <h2>Queue DOWN (trigger khi pct &le; target)</h2>
                   <table>
                     <thead>
                       <tr>
@@ -534,14 +631,14 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {engineDownTasks.length === 0 ? (
+                      {sectionDownTasks.length === 0 ? (
                         <tr>
                           <td colSpan={7} className="empty">
                             No DOWN tasks
                           </td>
                         </tr>
                       ) : (
-                        engineDownTasks.map((t) => (
+                        sectionDownTasks.map((t) => (
                           <tr key={t.id}>
                             <td>{t.id}</td>
                             <td>
@@ -557,10 +654,13 @@ function App() {
                             </td>
                             <td>
                               {formatPrice(
-                                engineState.x0 * (1 + t.target_pct / 100),
+                                selectedSection.x0 *
+                                  (1 + t.target_pct / 100)
                               )}
                             </td>
-                            <td>{t.sibling_id ? `#${t.sibling_id}` : "—"}</td>
+                            <td>
+                              {t.sibling_id ? `#${t.sibling_id}` : "—"}
+                            </td>
                             <td>{t.sell_origin || "—"}</td>
                             <td>{t.note}</td>
                           </tr>
@@ -570,7 +670,7 @@ function App() {
                   </table>
                 </section>
 
-                {/* Passed tasks */}
+                {/* Passed */}
                 <section className="card">
                   <h2>Passed Tasks (Triggered)</h2>
                   <table>
@@ -583,19 +683,18 @@ function App() {
                         <th>Hit %</th>
                         <th>Hit Price</th>
                         <th>Origin</th>
-                        <th>Note</th>
                         <th>Time</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {enginePassedTasks.length === 0 ? (
+                      {sectionPassedTasks.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="empty">
+                          <td colSpan={8} className="empty">
                             No passed tasks yet
                           </td>
                         </tr>
                       ) : (
-                        enginePassedTasks.map((t: PassedTaskItem, i: number) => (
+                        sectionPassedTasks.map((t, i) => (
                           <tr key={`passed-${t.id}-${i}`}>
                             <td>#{t.task_id ?? "?"}</td>
                             <td>
@@ -616,7 +715,6 @@ function App() {
                             </td>
                             <td>{formatPrice(t.hit_price)}</td>
                             <td>{t.sell_origin || "—"}</td>
-                            <td>{t.note}</td>
                             <td>{t.at}</td>
                           </tr>
                         ))
@@ -625,9 +723,9 @@ function App() {
                   </table>
                 </section>
 
-                {/* Closed tasks (sibling cancelled) */}
+                {/* Closed */}
                 <section className="card">
-                  <h2>Closed Tasks (Sibling Cancelled)</h2>
+                  <h2>Closed Tasks (Cancelled)</h2>
                   <table>
                     <thead>
                       <tr>
@@ -642,14 +740,14 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {engineClosedTasks.length === 0 ? (
+                      {sectionClosedTasks.length === 0 ? (
                         <tr>
                           <td colSpan={8} className="empty">
                             No closed tasks yet
                           </td>
                         </tr>
                       ) : (
-                        engineClosedTasks.map((t, i) => (
+                        sectionClosedTasks.map((t, i) => (
                           <tr key={`closed-${t.id}-${i}`}>
                             <td>#{t.closed_task_id}</td>
                             <td>
@@ -666,7 +764,9 @@ function App() {
                             </td>
                             <td>#{t.sibling_triggered_id}</td>
                             <td
-                              className={t.at_pct >= 0 ? "pct-up" : "pct-down"}
+                              className={
+                                t.at_pct >= 0 ? "pct-up" : "pct-down"
+                              }
                             >
                               {t.at_pct >= 0 ? "+" : ""}
                               {t.at_pct.toFixed(4)}%
@@ -682,11 +782,10 @@ function App() {
               </>
             )}
 
-            {engineSelectedSymbol && !engineState && (
+            {selectedSymbol && symbolSections.length === 0 && (
               <section className="card">
                 <p className="sub">
-                  No engine state for {engineSelectedSymbol}. Initialize it
-                  first.
+                  No sections for {selectedSymbol}. Create one above.
                 </p>
               </section>
             )}
@@ -696,8 +795,8 @@ function App() {
         {page === "settings" && (
           <>
             <p className="sub">
-              Cấu hình % bán coin cho mỗi symbol. SELL DOWN % và SELL UP % quyết
-              định số lượng coin sẽ bán khi task trigger.
+              Cấu hình % bán coin cho mỗi symbol. SELL DOWN % và SELL UP %
+              quyết định số lượng coin sẽ bán khi task trigger.
             </p>
             <section className="card">
               <h2>Settings (per-symbol)</h2>
@@ -706,7 +805,7 @@ function App() {
               )}
               {settingsList.length === 0 ? (
                 <p className="sub">
-                  Chưa có symbol nào. Init engine trước để tạo settings.
+                  Chưa có symbol nào. Tạo section trước để tạo settings.
                 </p>
               ) : (
                 <table>
@@ -726,7 +825,9 @@ function App() {
                       };
                       return (
                         <tr key={s.symbol}>
-                          <td><strong>{s.symbol}</strong></td>
+                          <td>
+                            <strong>{s.symbol}</strong>
+                          </td>
                           <td>
                             <input
                               type="text"
@@ -734,7 +835,10 @@ function App() {
                               onChange={(e) =>
                                 setSettingsEdits((prev) => ({
                                   ...prev,
-                                  [s.symbol]: { ...edit, sell_down_pct: e.target.value },
+                                  [s.symbol]: {
+                                    ...edit,
+                                    sell_down_pct: e.target.value,
+                                  },
                                 }))
                               }
                               style={{ width: "80px" }}
@@ -747,7 +851,10 @@ function App() {
                               onChange={(e) =>
                                 setSettingsEdits((prev) => ({
                                   ...prev,
-                                  [s.symbol]: { ...edit, sell_up_pct: e.target.value },
+                                  [s.symbol]: {
+                                    ...edit,
+                                    sell_up_pct: e.target.value,
+                                  },
                                 }))
                               }
                               style={{ width: "80px" }}
@@ -759,15 +866,30 @@ function App() {
                               onClick={async () => {
                                 const down = parseFloat(edit.sell_down_pct);
                                 const up = parseFloat(edit.sell_up_pct);
-                                if (isNaN(down) || isNaN(up) || down <= 0 || down > 100 || up <= 0 || up > 100) {
-                                  setSettingsMessage("Values must be between 0 and 100");
+                                if (
+                                  isNaN(down) ||
+                                  isNaN(up) ||
+                                  down <= 0 ||
+                                  down > 100 ||
+                                  up <= 0 ||
+                                  up > 100
+                                ) {
+                                  setSettingsMessage(
+                                    "Values must be between 0 and 100"
+                                  );
                                   return;
                                 }
-                                const res = await saveSettings(s.symbol, down, up);
+                                const res = await saveSettings(
+                                  s.symbol,
+                                  down,
+                                  up
+                                );
                                 if (res.error) {
                                   setSettingsMessage(res.error);
                                 } else {
-                                  setSettingsMessage(`Saved ${s.symbol}: SELL DOWN=${down}%, SELL UP=${up}%`);
+                                  setSettingsMessage(
+                                    `Saved ${s.symbol}: SELL DOWN=${down}%, SELL UP=${up}%`
+                                  );
                                   fetchSettings().then(setSettingsList);
                                   setToast(true);
                                   setTimeout(() => setToast(false), 2000);
@@ -790,8 +912,9 @@ function App() {
         {page === "summary" && (
           <>
             <p className="sub">
-              Tổng hợp action sắp tới (pending) cho tất cả symbol, chia theo SELL
-              DOWN / BUY DOWN / SELL UP, kèm số lượng coin.
+              Tổng hợp action sắp tới (pending) cho tất cả symbol, chia theo
+              SELL DOWN / BUY DOWN / SELL UP, kèm số lượng coin và tên
+              section.
             </p>
             <div className="summary-actions">
               <button
@@ -803,43 +926,27 @@ function App() {
             </div>
             {summaryData.length === 0 ? (
               <section className="card">
-                <p className="sub">Chưa có symbol nào được init.</p>
+                <p className="sub">Chưa có section nào được tạo.</p>
               </section>
             ) : (
               summaryData.map((sym) => (
-                <section className="card summary-coin-card" key={sym.symbol}>
+                <section
+                  className="card summary-coin-card"
+                  key={sym.symbol}
+                >
                   <h2>
-                    {sym.symbol} — SELL DOWN: {sym.settings.sell_down_pct}% | SELL
-                    UP: {sym.settings.sell_up_pct}%
+                    {sym.symbol} — SELL DOWN:{" "}
+                    {sym.settings.sell_down_pct}% | SELL UP:{" "}
+                    {sym.settings.sell_up_pct}%
                   </h2>
-                  <div className="engine-state-grid" style={{ marginBottom: "1rem" }}>
-                    <div className="engine-stat">
-                      <span className="engine-stat-label">x0</span>
-                      <span className="engine-stat-value">{formatPrice(sym.state.x0)}</span>
-                    </div>
-                    <div className="engine-stat">
-                      <span className="engine-stat-label">Current</span>
-                      <span className="engine-stat-value">{formatPrice(sym.state.current_x)}</span>
-                    </div>
-                    <div className="engine-stat">
-                      <span className="engine-stat-label">%</span>
-                      <span className={`engine-stat-value ${sym.state.current_pct >= 0 ? "pct-up" : "pct-down"}`}>
-                        {sym.state.current_pct >= 0 ? "+" : ""}{sym.state.current_pct.toFixed(4)}%
-                      </span>
-                    </div>
-                    <div className="engine-stat">
-                      <span className="engine-stat-label">Coin Qty</span>
-                      <span className="engine-stat-value">{sym.state.coin_qty ?? 0}</span>
-                    </div>
-                  </div>
 
                   {/* SELL DOWN */}
                   <h3 className="summary-section-title">SELL DOWN</h3>
                   <table>
                     <thead>
                       <tr>
+                        <th>Section</th>
                         <th>#</th>
-                        <th>Action</th>
                         <th>Target %</th>
                         <th>Target Price</th>
                         <th>Coins</th>
@@ -847,21 +954,34 @@ function App() {
                     </thead>
                     <tbody>
                       {sym.sell_down.length === 0 ? (
-                        <tr><td colSpan={5} className="empty">(none)</td></tr>
+                        <tr>
+                          <td colSpan={5} className="empty">
+                            (none)
+                          </td>
+                        </tr>
                       ) : (
                         <>
-                          {sym.sell_down.map((r) => (
+                          {sym.sell_down.map((r: any) => (
                             <tr key={r.id}>
+                              <td>{r.section_name}</td>
                               <td>{r.id}</td>
-                              <td><span className="action-badge action-sell">SELL</span></td>
-                              <td className="pct-down">{r.target_pct >= 0 ? "+" : ""}{r.target_pct.toFixed(4)}%</td>
+                              <td className="pct-down">
+                                {r.target_pct >= 0 ? "+" : ""}
+                                {r.target_pct.toFixed(4)}%
+                              </td>
                               <td>{formatPrice(r.target_price)}</td>
                               <td>{r.coins_to_trade.toFixed(4)}</td>
                             </tr>
                           ))}
                           <tr className="summary-total-row">
-                            <td colSpan={4}><strong>Total coins to sell</strong></td>
-                            <td><strong>{sym.total_sell_down_coins.toFixed(4)}</strong></td>
+                            <td colSpan={4}>
+                              <strong>Total coins to sell</strong>
+                            </td>
+                            <td>
+                              <strong>
+                                {sym.total_sell_down_coins.toFixed(4)}
+                              </strong>
+                            </td>
                           </tr>
                         </>
                       )}
@@ -873,8 +993,8 @@ function App() {
                   <table>
                     <thead>
                       <tr>
+                        <th>Section</th>
                         <th>#</th>
-                        <th>Action</th>
                         <th>Target %</th>
                         <th>Target Price</th>
                         <th>Coins</th>
@@ -883,22 +1003,35 @@ function App() {
                     </thead>
                     <tbody>
                       {sym.buy_down.length === 0 ? (
-                        <tr><td colSpan={6} className="empty">(none)</td></tr>
+                        <tr>
+                          <td colSpan={6} className="empty">
+                            (none)
+                          </td>
+                        </tr>
                       ) : (
                         <>
-                          {sym.buy_down.map((r) => (
+                          {sym.buy_down.map((r: any) => (
                             <tr key={r.id}>
+                              <td>{r.section_name}</td>
                               <td>{r.id}</td>
-                              <td><span className="action-badge action-buy">BUY</span></td>
-                              <td className="pct-down">{r.target_pct >= 0 ? "+" : ""}{r.target_pct.toFixed(4)}%</td>
+                              <td className="pct-down">
+                                {r.target_pct >= 0 ? "+" : ""}
+                                {r.target_pct.toFixed(4)}%
+                              </td>
                               <td>{formatPrice(r.target_price)}</td>
                               <td>{r.coins_to_trade.toFixed(4)}</td>
                               <td>{r.sell_origin || "—"}</td>
                             </tr>
                           ))}
                           <tr className="summary-total-row">
-                            <td colSpan={4}><strong>Total coins to buy</strong></td>
-                            <td><strong>{sym.total_buy_down_coins.toFixed(4)}</strong></td>
+                            <td colSpan={4}>
+                              <strong>Total coins to buy</strong>
+                            </td>
+                            <td>
+                              <strong>
+                                {sym.total_buy_down_coins.toFixed(4)}
+                              </strong>
+                            </td>
                             <td></td>
                           </tr>
                         </>
@@ -911,8 +1044,8 @@ function App() {
                   <table>
                     <thead>
                       <tr>
+                        <th>Section</th>
                         <th>#</th>
-                        <th>Action</th>
                         <th>Target %</th>
                         <th>Target Price</th>
                         <th>Coins</th>
@@ -920,21 +1053,34 @@ function App() {
                     </thead>
                     <tbody>
                       {sym.sell_up.length === 0 ? (
-                        <tr><td colSpan={5} className="empty">(none)</td></tr>
+                        <tr>
+                          <td colSpan={5} className="empty">
+                            (none)
+                          </td>
+                        </tr>
                       ) : (
                         <>
-                          {sym.sell_up.map((r) => (
+                          {sym.sell_up.map((r: any) => (
                             <tr key={r.id}>
+                              <td>{r.section_name}</td>
                               <td>{r.id}</td>
-                              <td><span className="action-badge action-sell">SELL</span></td>
-                              <td className="pct-up">{r.target_pct >= 0 ? "+" : ""}{r.target_pct.toFixed(4)}%</td>
+                              <td className="pct-up">
+                                {r.target_pct >= 0 ? "+" : ""}
+                                {r.target_pct.toFixed(4)}%
+                              </td>
                               <td>{formatPrice(r.target_price)}</td>
                               <td>{r.coins_to_trade.toFixed(4)}</td>
                             </tr>
                           ))}
                           <tr className="summary-total-row">
-                            <td colSpan={4}><strong>Total coins to sell</strong></td>
-                            <td><strong>{sym.total_sell_up_coins.toFixed(4)}</strong></td>
+                            <td colSpan={4}>
+                              <strong>Total coins to sell</strong>
+                            </td>
+                            <td>
+                              <strong>
+                                {sym.total_sell_up_coins.toFixed(4)}
+                              </strong>
+                            </td>
                           </tr>
                         </>
                       )}

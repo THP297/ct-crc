@@ -491,3 +491,82 @@ td.empty {
 .summary-total-row td {
   padding-top: 0.6rem;
 }
+
+/* Sections grid */
+.sections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 1rem;
+}
+
+.section-card {
+  padding: 12px 14px;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.section-card:hover {
+  border-color: var(--accent);
+}
+
+.section-card.section-selected {
+  border-color: var(--accent);
+  background: rgba(247, 147, 26, 0.08);
+}
+
+.section-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.section-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.section-header-row h2 {
+  margin: 0;
+}
+
+.live-price-sections {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* Danger/small buttons */
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  opacity: 0.85;
+}
+
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.btn-xs {
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  line-height: 1.2;
+}

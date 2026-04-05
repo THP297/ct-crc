@@ -328,3 +328,252 @@ def ensure_settings(symbol: str) -> dict[str, Any]:
     data[sym] = default
     _save_json_file(SETTINGS_FILE, data)
     return default
+
+
+# --------------- Sections ---------------
+
+SECTIONS_FILE = DATA_DIR / "sections.json"
+_section_id_counter = 0
+
+
+def create_section(symbol: str, name: str, x0: float, coin_qty: float) -> dict[str, Any] | None:
+    if _use_db():
+        from .db import create_section as _create
+        return _create(symbol, name, x0, coin_qty)
+    global _section_id_counter
+    data = _load_json_file(SECTIONS_FILE) or []
+    max_id = max((s.get("id", 0) for s in data), default=0)
+    _section_id_counter = max(max_id, _section_id_counter) + 1
+    sec = {
+        "id": _section_id_counter,
+        "name": name,
+        "symbol": symbol.strip().upper(),
+        "x0": x0,
+        "coin_qty": coin_qty,
+        "current_x": x0,
+        "current_pct": 0.0,
+        "seeded": True,
+    }
+    data.append(sec)
+    _save_json_file(SECTIONS_FILE, data)
+    return sec
+
+
+def load_sections(symbol: str | None = None) -> list[dict[str, Any]]:
+    if _use_db():
+        from .db import load_sections as _load
+        return _load(symbol)
+    data = _load_json_file(SECTIONS_FILE) or []
+    if symbol:
+        sym = symbol.strip().upper()
+        return [s for s in data if (s.get("symbol") or "").upper() == sym]
+    return data
+
+
+def load_section(section_id: int) -> dict[str, Any] | None:
+    if _use_db():
+        from .db import load_section as _load
+        return _load(section_id)
+    data = _load_json_file(SECTIONS_FILE) or []
+    return next((s for s in data if s.get("id") == section_id), None)
+
+
+def save_section_state(section_id: int, current_x: float, current_pct: float) -> None:
+    if _use_db():
+        from .db import save_section_state as _save
+        return _save(section_id, current_x, current_pct)
+    data = _load_json_file(SECTIONS_FILE) or []
+    for s in data:
+        if s.get("id") == section_id:
+            s["current_x"] = current_x
+            s["current_pct"] = current_pct
+            break
+    _save_json_file(SECTIONS_FILE, data)
+
+
+def delete_section(section_id: int) -> None:
+    if _use_db():
+        from .db import delete_section_db as _delete
+        return _delete(section_id)
+    data = _load_json_file(SECTIONS_FILE) or []
+    data = [s for s in data if s.get("id") != section_id]
+    _save_json_file(SECTIONS_FILE, data)
+    # Also clean tasks
+    for fpath in (TASK_QUEUE_FILE, TASK_PASSED_FILE, TASK_CLOSED_FILE):
+        items = _load_json_file(fpath) or []
+        items = [t for t in items if t.get("section_id") != section_id]
+        _save_json_file(fpath, items)
+
+
+def load_task_queue_by_section(section_id: int) -> list[dict[str, Any]]:
+    if _use_db():
+        from .db import load_task_queue_by_section as _load
+        return _load(section_id)
+    data = _load_json_file(TASK_QUEUE_FILE) or []
+    return [t for t in data if t.get("section_id") == section_id]
+
+
+def add_task_to_queue_for_section(section_id: int, symbol: str, direction: str,
+                                   target_pct: float, action: str, note: str,
+                                   sibling_id: int | None = None,
+                                   sell_origin: str = "") -> dict[str, Any] | None:
+    if target_pct < -98 or target_pct > 98:
+        return None
+    if _use_db():
+        from .db import add_task_to_queue_for_section as _add
+        return _add(section_id, symbol, direction, target_pct, action, note, sibling_id, sell_origin)
+    global _task_queue_id_counter
+    data = _load_json_file(TASK_QUEUE_FILE) or []
+    max_id = max((t.get("id", 0) for t in data), default=0)
+    _task_queue_id_counter = max(max_id, _task_queue_id_counter) + 1
+    task = {
+        "id": _task_queue_id_counter,
+        "symbol": symbol.strip().upper(),
+        "direction": direction,
+        "target_pct": target_pct,
+        "action": action,
+        "note": note,
+        "sibling_id": sibling_id,
+        "sell_origin": sell_origin,
+        "section_id": section_id,
+    }
+    data.append(task)
+    _save_json_file(TASK_QUEUE_FILE, data)
+    return task
+
+
+def add_passed_task_for_section(section_id: int, symbol: str, direction: str,
+                                 action: str, target_pct: float, hit_pct: float,
+                                 hit_price: float, note: str,
+                                 task_id: int | None = None,
+                                 sell_origin: str = "") -> None:
+    if _use_db():
+        from .db import add_passed_task_for_section as _add
+        return _add(section_id, symbol, direction, action, target_pct, hit_pct, hit_price, note, task_id, sell_origin)
+    data = _load_json_file(TASK_PASSED_FILE) or []
+    data.insert(0, {
+        "symbol": symbol.strip().upper(),
+        "task_id": task_id,
+        "direction": direction,
+        "action": action,
+        "target_pct": target_pct,
+        "hit_pct": hit_pct,
+        "hit_price": hit_price,
+        "note": note,
+        "sell_origin": sell_origin,
+        "section_id": section_id,
+        "at": datetime.now(UTC7).strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    data = data[:500]
+    _save_json_file(TASK_PASSED_FILE, data)
+
+
+def load_passed_tasks_by_section(section_id: int) -> list[dict[str, Any]]:
+    if _use_db():
+        from .db import load_passed_tasks_by_section as _load
+        return _load(section_id)
+    data = _load_json_file(TASK_PASSED_FILE) or []
+    return [t for t in data if t.get("section_id") == section_id][:200]
+
+
+def add_closed_task_for_section(section_id: int, symbol: str, closed_task_id: int,
+                                 sibling_triggered_id: int | None, direction: str,
+                                 action: str, target_pct: float, at_pct: float,
+                                 at_price: float, reason: str, note: str) -> None:
+    if _use_db():
+        from .db import add_closed_task_for_section as _add
+        return _add(section_id, symbol, closed_task_id, sibling_triggered_id,
+                    direction, action, target_pct, at_pct, at_price, reason, note)
+    data = _load_json_file(TASK_CLOSED_FILE) or []
+    data.insert(0, {
+        "symbol": symbol.strip().upper(),
+        "closed_task_id": closed_task_id,
+        "sibling_triggered_id": sibling_triggered_id,
+        "direction": direction,
+        "action": action,
+        "target_pct": target_pct,
+        "at_pct": at_pct,
+        "at_price": at_price,
+        "reason": reason,
+        "note": note,
+        "section_id": section_id,
+        "at": datetime.now(UTC7).strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    data = data[:500]
+    _save_json_file(TASK_CLOSED_FILE, data)
+
+
+def load_closed_tasks_by_section(section_id: int) -> list[dict[str, Any]]:
+    if _use_db():
+        from .db import load_closed_tasks_by_section as _load
+        return _load(section_id)
+    data = _load_json_file(TASK_CLOSED_FILE) or []
+    return [t for t in data if t.get("section_id") == section_id][:200]
+
+
+def load_section_info_batched(section_id: int) -> dict[str, Any]:
+    if _use_db():
+        from .db import load_section_info_batched as _load
+        return _load(section_id)
+    section = load_section(section_id)
+    tasks = load_task_queue_by_section(section_id)
+    passed = load_passed_tasks_by_section(section_id)
+    closed = load_closed_tasks_by_section(section_id)
+    return {"section": section, "tasks": tasks, "passed": passed, "closed": closed}
+
+
+# --------------- Price History ---------------
+
+PRICE_HISTORY_FILE = DATA_DIR / "price_history.json"
+
+
+def add_price_history(symbol: str, price: float) -> None:
+    if _use_db():
+        from .db import add_price_history as _add
+        return _add(symbol, price)
+    data = _load_json_file(PRICE_HISTORY_FILE) or []
+    data.insert(0, {
+        "symbol": symbol.strip().upper(),
+        "price": price,
+        "at": datetime.now(UTC7).strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    data = data[:1000]
+    _save_json_file(PRICE_HISTORY_FILE, data)
+
+
+def load_price_history(symbol: str, limit: int = 20) -> list[dict[str, Any]]:
+    if _use_db():
+        from .db import load_price_history as _load
+        return _load(symbol, limit)
+    data = _load_json_file(PRICE_HISTORY_FILE) or []
+    sym = symbol.strip().upper()
+    return [h for h in data if (h.get("symbol") or "").upper() == sym][:limit]
+
+
+def delete_engine(symbol: str) -> None:
+    if _use_db():
+        from .db import delete_engine_db as _delete
+        return _delete(symbol)
+    sym = symbol.strip().upper()
+    # sections
+    secs = _load_json_file(SECTIONS_FILE) or []
+    sec_ids = {s["id"] for s in secs if (s.get("symbol") or "").upper() == sym}
+    secs = [s for s in secs if s.get("id") not in sec_ids]
+    _save_json_file(SECTIONS_FILE, secs)
+    # tasks, passed, closed - remove by symbol
+    for fpath in (TASK_QUEUE_FILE, TASK_PASSED_FILE, TASK_CLOSED_FILE):
+        items = _load_json_file(fpath) or []
+        items = [t for t in items if (t.get("symbol") or "").upper() != sym]
+        _save_json_file(fpath, items)
+    # engine state
+    states = _load_json_file(TASK_ENGINE_STATE_FILE) or {}
+    states.pop(sym, None)
+    _save_json_file(TASK_ENGINE_STATE_FILE, states)
+    # settings
+    settings = _load_json_file(SETTINGS_FILE) or {}
+    settings.pop(sym, None)
+    _save_json_file(SETTINGS_FILE, settings)
+    # price history
+    history = _load_json_file(PRICE_HISTORY_FILE) or []
+    history = [h for h in history if (h.get("symbol") or "").upper() != sym]
+    _save_json_file(PRICE_HISTORY_FILE, history)

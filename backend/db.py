@@ -174,6 +174,45 @@ def init_schema() -> None:
             );
         """)
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crypto_sections (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(50) NOT NULL,
+                symbol VARCHAR(20) NOT NULL,
+                x0 NUMERIC NOT NULL,
+                coin_qty NUMERIC NOT NULL DEFAULT 0,
+                current_x NUMERIC NOT NULL,
+                current_pct NUMERIC NOT NULL DEFAULT 0,
+                seeded BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_crypto_sections_symbol ON crypto_sections(symbol);")
+
+        try:
+            cur.execute("ALTER TABLE crypto_task_queue ADD COLUMN IF NOT EXISTS section_id INTEGER")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE crypto_task_passed ADD COLUMN IF NOT EXISTS section_id INTEGER")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE crypto_task_closed ADD COLUMN IF NOT EXISTS section_id INTEGER")
+        except Exception:
+            pass
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crypto_price_history (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(20) NOT NULL,
+                price NUMERIC NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_crypto_price_history_symbol ON crypto_price_history(symbol);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_crypto_price_history_at ON crypto_price_history(created_at DESC);")
+
 
 # --------------- Task Engine State ---------------
 
@@ -625,3 +664,354 @@ def ensure_settings(symbol: str) -> dict[str, Any]:
         return existing
     save_settings(symbol, 50.0, 50.0)
     return {"symbol": symbol.strip().upper(), "sell_down_pct": 50.0, "sell_up_pct": 50.0}
+
+
+# --------------- Sections ---------------
+
+def create_section(symbol: str, name: str, x0: float, coin_qty: float) -> dict[str, Any] | None:
+    try:
+        init_schema()
+        now = datetime.now(UTC7).replace(tzinfo=None)
+        with _cursor() as cur:
+            cur.execute(
+                """INSERT INTO crypto_sections (name, symbol, x0, coin_qty, current_x, current_pct, seeded, created_at)
+                   VALUES (%s, %s, %s, %s, %s, 0, TRUE, %s) RETURNING id""",
+                (name, symbol.strip().upper(), x0, coin_qty, x0, now),
+            )
+            row = cur.fetchone()
+            return {
+                "id": row[0], "name": name, "symbol": symbol.strip().upper(),
+                "x0": x0, "coin_qty": coin_qty, "current_x": x0,
+                "current_pct": 0.0, "seeded": True,
+            }
+    except Exception as e:
+        logger.warning("db create_section: %s", e)
+        return None
+
+
+def load_sections(symbol: str | None = None) -> list[dict[str, Any]]:
+    out = []
+    try:
+        init_schema()
+        with _cursor() as cur:
+            if symbol:
+                cur.execute(
+                    "SELECT id, name, symbol, x0, coin_qty, current_x, current_pct, seeded FROM crypto_sections WHERE UPPER(symbol) = UPPER(%s) ORDER BY id",
+                    (symbol.strip(),),
+                )
+            else:
+                cur.execute("SELECT id, name, symbol, x0, coin_qty, current_x, current_pct, seeded FROM crypto_sections ORDER BY symbol, id")
+            for row in cur.fetchall():
+                out.append({
+                    "id": row[0], "name": row[1], "symbol": row[2],
+                    "x0": float(row[3]), "coin_qty": float(row[4]),
+                    "current_x": float(row[5]), "current_pct": float(row[6]),
+                    "seeded": bool(row[7]),
+                })
+    except Exception as e:
+        logger.warning("db load_sections: %s", e)
+    return out
+
+
+def load_section(section_id: int) -> dict[str, Any] | None:
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                "SELECT id, name, symbol, x0, coin_qty, current_x, current_pct, seeded FROM crypto_sections WHERE id = %s",
+                (section_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return {
+                "id": row[0], "name": row[1], "symbol": row[2],
+                "x0": float(row[3]), "coin_qty": float(row[4]),
+                "current_x": float(row[5]), "current_pct": float(row[6]),
+                "seeded": bool(row[7]),
+            }
+    except Exception as e:
+        logger.warning("db load_section: %s", e)
+        return None
+
+
+def save_section_state(section_id: int, current_x: float, current_pct: float) -> None:
+    try:
+        with _cursor() as cur:
+            cur.execute(
+                "UPDATE crypto_sections SET current_x = %s, current_pct = %s WHERE id = %s",
+                (current_x, current_pct, section_id),
+            )
+    except Exception as e:
+        logger.warning("db save_section_state: %s", e)
+
+
+def delete_section_db(section_id: int) -> None:
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute("DELETE FROM crypto_task_queue WHERE section_id = %s", (section_id,))
+            cur.execute("DELETE FROM crypto_task_passed WHERE section_id = %s", (section_id,))
+            cur.execute("DELETE FROM crypto_task_closed WHERE section_id = %s", (section_id,))
+            cur.execute("DELETE FROM crypto_sections WHERE id = %s", (section_id,))
+    except Exception as e:
+        logger.warning("db delete_section_db: %s", e)
+
+
+def load_task_queue_by_section(section_id: int) -> list[dict[str, Any]]:
+    out = []
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                "SELECT id, symbol, direction, target_pct, action, note, sibling_id, sell_origin, section_id FROM crypto_task_queue WHERE section_id = %s",
+                (section_id,),
+            )
+            for row in cur.fetchall():
+                out.append({
+                    "id": row[0], "symbol": row[1], "direction": row[2],
+                    "target_pct": float(row[3]), "action": row[4],
+                    "note": row[5] or "", "sibling_id": row[6],
+                    "sell_origin": row[7] or "", "section_id": row[8],
+                })
+    except Exception as e:
+        logger.warning("db load_task_queue_by_section: %s", e)
+    return out
+
+
+def add_task_to_queue_for_section(section_id: int, symbol: str, direction: str,
+                                   target_pct: float, action: str, note: str,
+                                   sibling_id: int | None = None,
+                                   sell_origin: str = "") -> dict[str, Any] | None:
+    if target_pct < -98 or target_pct > 98:
+        return None
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                "INSERT INTO crypto_task_queue (symbol, direction, target_pct, action, note, sibling_id, sell_origin, section_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (symbol.strip().upper(), direction, target_pct, action, note, sibling_id, sell_origin, section_id),
+            )
+            row = cur.fetchone()
+            return {
+                "id": row[0], "symbol": symbol.strip().upper(),
+                "direction": direction, "target_pct": target_pct,
+                "action": action, "note": note, "sibling_id": sibling_id,
+                "sell_origin": sell_origin, "section_id": section_id,
+            }
+    except Exception as e:
+        logger.warning("db add_task_to_queue_for_section: %s", e)
+        return None
+
+
+def add_passed_task_for_section(section_id: int, symbol: str, direction: str,
+                                 action: str, target_pct: float, hit_pct: float,
+                                 hit_price: float, note: str,
+                                 task_id: int | None = None,
+                                 sell_origin: str = "") -> None:
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                """INSERT INTO crypto_task_passed (symbol, task_id, direction, action, target_pct, hit_pct, hit_price, note, sell_origin, section_id, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (symbol.strip().upper(), task_id, direction, action, target_pct,
+                 hit_pct, hit_price, note, sell_origin, section_id,
+                 datetime.now(UTC7).replace(tzinfo=None)),
+            )
+    except Exception as e:
+        logger.warning("db add_passed_task_for_section: %s", e)
+
+
+def load_passed_tasks_by_section(section_id: int) -> list[dict[str, Any]]:
+    out = []
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                """SELECT id, symbol, direction, action, target_pct, hit_pct, hit_price, note, created_at, task_id, sell_origin, section_id
+                   FROM crypto_task_passed WHERE section_id = %s ORDER BY created_at DESC LIMIT 200""",
+                (section_id,),
+            )
+            for row in cur.fetchall():
+                out.append({
+                    "id": row[0], "symbol": row[1], "direction": row[2],
+                    "action": row[3], "target_pct": float(row[4]),
+                    "hit_pct": float(row[5]), "hit_price": float(row[6]),
+                    "note": row[7] or "",
+                    "at": row[8].strftime("%Y-%m-%d %H:%M:%S") if hasattr(row[8], "strftime") else str(row[8]),
+                    "task_id": row[9], "sell_origin": row[10] or "",
+                    "section_id": row[11],
+                })
+    except Exception as e:
+        logger.warning("db load_passed_tasks_by_section: %s", e)
+    return out
+
+
+def add_closed_task_for_section(section_id: int, symbol: str, closed_task_id: int,
+                                 sibling_triggered_id: int | None, direction: str,
+                                 action: str, target_pct: float, at_pct: float,
+                                 at_price: float, reason: str, note: str) -> None:
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                """INSERT INTO crypto_task_closed
+                   (symbol, closed_task_id, sibling_triggered_id, direction, action,
+                    target_pct, at_pct, at_price, reason, note, section_id, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (symbol.strip().upper(), closed_task_id, sibling_triggered_id,
+                 direction, action, target_pct, at_pct, at_price, reason, note,
+                 section_id, datetime.now(UTC7).replace(tzinfo=None)),
+            )
+    except Exception as e:
+        logger.warning("db add_closed_task_for_section: %s", e)
+
+
+def load_closed_tasks_by_section(section_id: int) -> list[dict[str, Any]]:
+    out = []
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                """SELECT id, symbol, closed_task_id, sibling_triggered_id,
+                          direction, action, target_pct, at_pct, at_price,
+                          reason, note, created_at, section_id
+                   FROM crypto_task_closed WHERE section_id = %s
+                   ORDER BY created_at DESC LIMIT 200""",
+                (section_id,),
+            )
+            for row in cur.fetchall():
+                out.append({
+                    "id": row[0], "symbol": row[1],
+                    "closed_task_id": row[2], "sibling_triggered_id": row[3],
+                    "direction": row[4], "action": row[5],
+                    "target_pct": float(row[6]), "at_pct": float(row[7]),
+                    "at_price": float(row[8]),
+                    "reason": row[9] or "", "note": row[10] or "",
+                    "at": row[11].strftime("%Y-%m-%d %H:%M:%S") if hasattr(row[11], "strftime") else str(row[11]),
+                    "section_id": row[12],
+                })
+    except Exception as e:
+        logger.warning("db load_closed_tasks_by_section: %s", e)
+    return out
+
+
+def load_section_info_batched(section_id: int) -> dict[str, Any]:
+    result: dict[str, Any] = {"section": None, "tasks": [], "passed": [], "closed": []}
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                "SELECT id, name, symbol, x0, coin_qty, current_x, current_pct, seeded FROM crypto_sections WHERE id = %s",
+                (section_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                result["section"] = {
+                    "id": row[0], "name": row[1], "symbol": row[2],
+                    "x0": float(row[3]), "coin_qty": float(row[4]),
+                    "current_x": float(row[5]), "current_pct": float(row[6]),
+                    "seeded": bool(row[7]),
+                }
+
+            cur.execute(
+                "SELECT id, symbol, direction, target_pct, action, note, sibling_id, sell_origin, section_id FROM crypto_task_queue WHERE section_id = %s",
+                (section_id,),
+            )
+            for row in cur.fetchall():
+                result["tasks"].append({
+                    "id": row[0], "symbol": row[1], "direction": row[2],
+                    "target_pct": float(row[3]), "action": row[4],
+                    "note": row[5] or "", "sibling_id": row[6],
+                    "sell_origin": row[7] or "", "section_id": row[8],
+                })
+
+            cur.execute(
+                """SELECT id, symbol, direction, action, target_pct, hit_pct, hit_price, note, created_at, task_id, sell_origin, section_id
+                   FROM crypto_task_passed WHERE section_id = %s ORDER BY created_at DESC LIMIT 200""",
+                (section_id,),
+            )
+            for row in cur.fetchall():
+                result["passed"].append({
+                    "id": row[0], "symbol": row[1], "direction": row[2],
+                    "action": row[3], "target_pct": float(row[4]),
+                    "hit_pct": float(row[5]), "hit_price": float(row[6]),
+                    "note": row[7] or "",
+                    "at": row[8].strftime("%Y-%m-%d %H:%M:%S") if hasattr(row[8], "strftime") else str(row[8]),
+                    "task_id": row[9], "sell_origin": row[10] or "",
+                    "section_id": row[11],
+                })
+
+            cur.execute(
+                """SELECT id, symbol, closed_task_id, sibling_triggered_id,
+                          direction, action, target_pct, at_pct, at_price,
+                          reason, note, created_at, section_id
+                   FROM crypto_task_closed WHERE section_id = %s
+                   ORDER BY created_at DESC LIMIT 200""",
+                (section_id,),
+            )
+            for row in cur.fetchall():
+                result["closed"].append({
+                    "id": row[0], "symbol": row[1],
+                    "closed_task_id": row[2], "sibling_triggered_id": row[3],
+                    "direction": row[4], "action": row[5],
+                    "target_pct": float(row[6]), "at_pct": float(row[7]),
+                    "at_price": float(row[8]),
+                    "reason": row[9] or "", "note": row[10] or "",
+                    "at": row[11].strftime("%Y-%m-%d %H:%M:%S") if hasattr(row[11], "strftime") else str(row[11]),
+                    "section_id": row[12],
+                })
+    except Exception as e:
+        logger.warning("db load_section_info_batched: %s", e)
+    return result
+
+
+# --------------- Price History ---------------
+
+def add_price_history(symbol: str, price: float) -> None:
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                "INSERT INTO crypto_price_history (symbol, price, created_at) VALUES (%s, %s, %s)",
+                (symbol.strip().upper(), price, datetime.now(UTC7).replace(tzinfo=None)),
+            )
+    except Exception as e:
+        logger.warning("db add_price_history: %s", e)
+
+
+def load_price_history(symbol: str, limit: int = 20) -> list[dict[str, Any]]:
+    out = []
+    try:
+        init_schema()
+        with _cursor() as cur:
+            cur.execute(
+                "SELECT id, symbol, price, created_at FROM crypto_price_history WHERE UPPER(symbol) = UPPER(%s) ORDER BY created_at DESC LIMIT %s",
+                (symbol.strip(), limit),
+            )
+            for row in cur.fetchall():
+                out.append({
+                    "id": row[0], "symbol": row[1], "price": float(row[2]),
+                    "at": row[3].strftime("%Y-%m-%d %H:%M:%S") if hasattr(row[3], "strftime") else str(row[3]),
+                })
+    except Exception as e:
+        logger.warning("db load_price_history: %s", e)
+    return out
+
+
+def delete_engine_db(symbol: str) -> None:
+    """Delete all data for a symbol: sections, tasks, passed, closed, engine state, settings."""
+    try:
+        init_schema()
+        sym = symbol.strip().upper()
+        with _cursor() as cur:
+            cur.execute("DELETE FROM crypto_task_queue WHERE UPPER(symbol) = UPPER(%s)", (sym,))
+            cur.execute("DELETE FROM crypto_task_passed WHERE UPPER(symbol) = UPPER(%s)", (sym,))
+            cur.execute("DELETE FROM crypto_task_closed WHERE UPPER(symbol) = UPPER(%s)", (sym,))
+            cur.execute("DELETE FROM crypto_sections WHERE UPPER(symbol) = UPPER(%s)", (sym,))
+            cur.execute("DELETE FROM crypto_task_engine_state WHERE UPPER(symbol) = UPPER(%s)", (sym,))
+            cur.execute("DELETE FROM crypto_settings WHERE UPPER(symbol) = UPPER(%s)", (sym,))
+            cur.execute("DELETE FROM crypto_price_history WHERE UPPER(symbol) = UPPER(%s)", (sym,))
+    except Exception as e:
+        logger.warning("db delete_engine_db: %s", e)

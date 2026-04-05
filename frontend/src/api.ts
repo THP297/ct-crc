@@ -198,3 +198,144 @@ export async function fetchSummary(): Promise<SummarySymbol[]> {
   const data = await res.json();
   return data.summary ?? [];
 }
+
+// --------------- Sections ---------------
+
+export type Section = {
+  id: number;
+  name: string;
+  symbol: string;
+  x0: number;
+  coin_qty: number;
+  current_x: number;
+  current_pct: number;
+  seeded: boolean;
+};
+
+export type SectionInfoResponse = {
+  section: Section | null;
+  up_tasks: TaskQueueItem[];
+  down_tasks: TaskQueueItem[];
+  passed_tasks: PassedTaskItem[];
+  closed_tasks: ClosedTaskItem[];
+};
+
+export type CreateSectionResponse = {
+  ok?: boolean;
+  error?: string;
+  section?: Section;
+  up_tasks?: TaskQueueItem[];
+  down_tasks?: TaskQueueItem[];
+};
+
+export type PriceBroadcastResult = {
+  section_id: number;
+  section_name: string;
+  current_pct: number;
+  delta_pct: number;
+  triggered: TaskQueueItem[];
+  spawned: TaskQueueItem[];
+};
+
+export type PriceBroadcastResponse = {
+  ok?: boolean;
+  error?: string;
+  symbol?: string;
+  price?: number;
+  sections_updated?: number;
+  total_triggered?: number;
+  results?: PriceBroadcastResult[];
+};
+
+export async function fetchSections(
+  symbol?: string
+): Promise<Section[]> {
+  const url = symbol
+    ? `${API}/task-engine/sections?symbol=${encodeURIComponent(symbol.trim().toUpperCase())}`
+    : `${API}/task-engine/sections`;
+  const res = await fetch(url);
+  const data = await res.json();
+  return data.sections ?? [];
+}
+
+export async function createSection(
+  symbol: string,
+  name: string,
+  x0: number,
+  coin_qty: number = 0
+): Promise<CreateSectionResponse> {
+  const res = await fetch(`${API}/task-engine/sections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbol: symbol.trim().toUpperCase(),
+      name: name.trim(),
+      x0,
+      coin_qty,
+    }),
+  });
+  return await res.json();
+}
+
+export async function fetchSectionInfo(
+  sectionId: number
+): Promise<SectionInfoResponse> {
+  const res = await fetch(`${API}/task-engine/sections/${sectionId}`);
+  return await res.json();
+}
+
+export async function deleteSection(
+  sectionId: number
+): Promise<{ ok?: boolean; error?: string }> {
+  const res = await fetch(`${API}/task-engine/sections/${sectionId}`, {
+    method: "DELETE",
+  });
+  return await res.json();
+}
+
+export async function priceBroadcast(
+  symbol: string,
+  price: number
+): Promise<PriceBroadcastResponse> {
+  const res = await fetch(`${API}/task-engine/price-broadcast`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbol: symbol.trim().toUpperCase(),
+      price,
+    }),
+  });
+  return await res.json();
+}
+
+export async function deleteEngine(
+  symbol: string
+): Promise<{ ok?: boolean; error?: string }> {
+  const res = await fetch(
+    `${API}/task-engine/engine/${encodeURIComponent(symbol.trim().toUpperCase())}`,
+    { method: "DELETE" }
+  );
+  return await res.json();
+}
+
+// --------------- Price History ---------------
+
+export type PriceHistoryItem = {
+  id?: number;
+  symbol: string;
+  price: number;
+  at: string;
+};
+
+export async function fetchPriceHistory(
+  symbol: string,
+  limit: number = 20
+): Promise<PriceHistoryItem[]> {
+  const res = await fetch(
+    `${API}/task-engine/price-history?symbol=${encodeURIComponent(
+      symbol.trim().toUpperCase()
+    )}&limit=${limit}`
+  );
+  const data = await res.json();
+  return data.history ?? [];
+}
