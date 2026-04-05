@@ -63,6 +63,8 @@ def index():
             "/api/task-engine/price",
             "/api/task-engine/info",
             "/api/task-engine/live-prices",
+            "/api/task-engine/settings",
+            "/api/task-engine/summary",
         ],
     })
 
@@ -103,8 +105,14 @@ def api_task_engine_init():
         x0 = float(x0)
     except (ValueError, TypeError):
         return jsonify({"error": "x0 must be a number"}), 400
+    coin_qty = 0.0
+    if data.get("coin_qty") is not None:
+        try:
+            coin_qty = float(data["coin_qty"])
+        except (ValueError, TypeError):
+            return jsonify({"error": "coin_qty must be a number"}), 400
     from .task_engine import init_engine
-    result = init_engine(symbol, x0)
+    result = init_engine(symbol, x0, coin_qty=coin_qty)
     if "error" in result:
         return jsonify(result), 400
     try:
@@ -142,6 +150,30 @@ def api_task_engine_info():
     return jsonify(get_engine_info(symbol))
 
 
+@app.route("/api/task-engine/settings", methods=["GET"])
+def api_task_engine_settings_get():
+    from .store import load_all_settings
+    return jsonify({"settings": load_all_settings()})
+
+
+@app.route("/api/task-engine/settings", methods=["POST"])
+def api_task_engine_settings_save():
+    data = request.get_json(silent=True) or {}
+    symbol = (data.get("symbol") or "").strip().upper()
+    if not symbol:
+        return jsonify({"error": "symbol is required"}), 400
+    try:
+        sell_down_pct = float(data.get("sell_down_pct", 50))
+        sell_up_pct = float(data.get("sell_up_pct", 50))
+    except (ValueError, TypeError):
+        return jsonify({"error": "sell_down_pct and sell_up_pct must be numbers"}), 400
+    if not (0 < sell_down_pct <= 100) or not (0 < sell_up_pct <= 100):
+        return jsonify({"error": "Percentages must be between 0 and 100"}), 400
+    from .store import save_settings
+    save_settings(symbol, sell_down_pct, sell_up_pct)
+    return jsonify({"ok": True, "symbol": symbol, "sell_down_pct": sell_down_pct, "sell_up_pct": sell_up_pct})
+
+
 @app.route("/api/task-engine/live-prices")
 def api_live_prices():
     from .realtime_poller import get_latest_prices
@@ -151,6 +183,69 @@ def api_live_prices():
         logging.warning("live-prices: %s", e)
         prices = {}
     return jsonify(prices or {})
+
+
+@app.route("/api/task-engine/summary")
+def api_task_engine_summary():
+    from .task_engine import get_all_engine_symbols, get_engine_info
+    from .store import load_settings, ensure_settings
+
+    symbols = get_all_engine_symbols()
+    result = []
+
+    for sym in symbols:
+        info = get_engine_info(sym)
+        state = info.get("state")
+        if state is None:
+            continue
+
+        settings = load_settings(sym) or ensure_settings(sym)
+        coin_qty = state.get("coin_qty", 0)
+        sell_down_pct = settings.get("sell_down_pct", 50)
+        sell_up_pct = settings.get("sell_up_pct", 50)
+
+        all_tasks = info.get("up_tasks", []) + info.get("down_tasks", [])
+
+        sell_down_rows = []
+        buy_down_rows = []
+        sell_up_rows = []
+
+        for t in all_tasks:
+            row = {**t, "coin_qty": coin_qty}
+            if t["action"] == "SELL" and t["direction"] == "DOWN":
+                row["coins_to_trade"] = coin_qty * sell_down_pct / 100.0
+                sell_down_rows.append(row)
+            elif t["action"] == "SELL" and t["direction"] == "UP":
+                row["coins_to_trade"] = coin_qty * sell_up_pct / 100.0
+                sell_up_rows.append(row)
+            elif t["action"] == "BUY":
+                origin = t.get("sell_origin", "")
+                if origin == "SELL_DOWN":
+                    pct = sell_down_pct
+                elif origin == "SELL_UP":
+                    pct = sell_up_pct
+                else:
+                    pct = sell_down_pct
+                row["coins_to_trade"] = coin_qty * pct / 100.0
+                buy_down_rows.append(row)
+
+        x0 = state.get("x0", 1)
+        for row in sell_down_rows + buy_down_rows + sell_up_rows:
+            row["target_price"] = x0 * (1 + row["target_pct"] / 100.0)
+
+        result.append({
+            "symbol": sym,
+            "state": state,
+            "settings": settings,
+            "sell_down": sell_down_rows,
+            "buy_down": buy_down_rows,
+            "sell_up": sell_up_rows,
+            "total_sell_down_coins": sum(r["coins_to_trade"] for r in sell_down_rows),
+            "total_buy_down_coins": sum(r["coins_to_trade"] for r in buy_down_rows),
+            "total_sell_up_coins": sum(r["coins_to_trade"] for r in sell_up_rows),
+        })
+
+    return jsonify({"summary": result})
 
 
 @app.route("/api/check", methods=["GET", "POST"])

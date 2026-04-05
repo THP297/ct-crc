@@ -88,12 +88,13 @@ def load_task_queue(symbol: str) -> list[dict[str, Any]]:
 
 def add_task_to_queue(symbol: str, direction: str, target_pct: float,
                       action: str, note: str,
-                      sibling_id: int | None = None) -> dict[str, Any] | None:
+                      sibling_id: int | None = None,
+                      sell_origin: str = "") -> dict[str, Any] | None:
     if target_pct < -98 or target_pct > 98:
         return None
     if _use_db():
         from .db import add_task_to_queue as _add
-        return _add(symbol, direction, target_pct, action, note, sibling_id)
+        return _add(symbol, direction, target_pct, action, note, sibling_id, sell_origin)
     global _task_queue_id_counter
     data = _load_json_file(TASK_QUEUE_FILE) or []
     max_id = max((t.get("id", 0) for t in data), default=0)
@@ -106,6 +107,7 @@ def add_task_to_queue(symbol: str, direction: str, target_pct: float,
         "action": action,
         "note": note,
         "sibling_id": sibling_id,
+        "sell_origin": sell_origin,
     }
     data.append(task)
     _save_json_file(TASK_QUEUE_FILE, data)
@@ -147,10 +149,12 @@ def clear_task_queue_for_symbol(symbol: str) -> None:
 
 def add_passed_task(symbol: str, direction: str, action: str, target_pct: float,
                     hit_pct: float, hit_price: float, note: str,
-                    task_id: int | None = None) -> None:
+                    task_id: int | None = None,
+                    sell_origin: str = "") -> None:
     if _use_db():
         from .db import add_passed_task as _add
-        return _add(symbol, direction, action, target_pct, hit_pct, hit_price, note, task_id=task_id)
+        return _add(symbol, direction, action, target_pct, hit_pct, hit_price, note,
+                    task_id=task_id, sell_origin=sell_origin)
     data = _load_json_file(TASK_PASSED_FILE) or []
     data.insert(0, {
         "symbol": symbol.strip().upper(),
@@ -161,6 +165,7 @@ def add_passed_task(symbol: str, direction: str, action: str, target_pct: float,
         "hit_pct": hit_pct,
         "hit_price": hit_price,
         "note": note,
+        "sell_origin": sell_origin,
         "at": datetime.now(UTC7).strftime("%Y-%m-%d %H:%M:%S"),
     })
     data = data[:500]
@@ -270,3 +275,56 @@ def load_engine_info_batched(symbol: str) -> dict[str, Any]:
     passed = load_passed_tasks(symbol)
     closed = load_closed_tasks(symbol)
     return {"state": state, "tasks": tasks, "passed": passed, "closed": closed}
+
+
+# --------------- Settings ---------------
+
+SETTINGS_FILE = DATA_DIR / "settings.json"
+
+
+def load_settings(symbol: str) -> dict[str, Any] | None:
+    if _use_db():
+        from .db import load_settings as _load
+        return _load(symbol)
+    data = _load_json_file(SETTINGS_FILE)
+    if not data or not isinstance(data, dict):
+        return None
+    return data.get(symbol.strip().upper())
+
+
+def save_settings(symbol: str, sell_down_pct: float, sell_up_pct: float) -> None:
+    if _use_db():
+        from .db import save_settings as _save
+        return _save(symbol, sell_down_pct, sell_up_pct)
+    data = _load_json_file(SETTINGS_FILE) or {}
+    data[symbol.strip().upper()] = {
+        "symbol": symbol.strip().upper(),
+        "sell_down_pct": sell_down_pct,
+        "sell_up_pct": sell_up_pct,
+    }
+    _save_json_file(SETTINGS_FILE, data)
+
+
+def load_all_settings() -> list[dict[str, Any]]:
+    if _use_db():
+        from .db import load_all_settings as _load
+        return _load()
+    data = _load_json_file(SETTINGS_FILE)
+    if not data or not isinstance(data, dict):
+        return []
+    return sorted(data.values(), key=lambda s: s.get("symbol", ""))
+
+
+def ensure_settings(symbol: str) -> dict[str, Any]:
+    if _use_db():
+        from .db import ensure_settings as _ensure
+        return _ensure(symbol)
+    existing = load_settings(symbol)
+    if existing:
+        return existing
+    sym = symbol.strip().upper()
+    default = {"symbol": sym, "sell_down_pct": 50.0, "sell_up_pct": 50.0}
+    data = _load_json_file(SETTINGS_FILE) or {}
+    data[sym] = default
+    _save_json_file(SETTINGS_FILE, data)
+    return default

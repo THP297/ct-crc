@@ -465,3 +465,29 @@ td.empty {
   font-weight: 700;
   color: var(--accent);
 }
+
+/* Summary page */
+.summary-actions {
+  margin-bottom: 1rem;
+}
+
+.summary-coin-card {
+  margin-bottom: 1.5rem;
+}
+
+.summary-section-title {
+  margin: 1.2rem 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-total-row {
+  border-top: 2px solid var(--border);
+}
+
+.summary-total-row td {
+  padding-top: 0.6rem;
+}

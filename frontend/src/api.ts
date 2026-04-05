@@ -28,6 +28,7 @@ export type TaskEngineState = {
   current_x: number;
   current_pct: number;
   seeded: boolean;
+  coin_qty: number;
 };
 
 export type TaskQueueItem = {
@@ -38,6 +39,7 @@ export type TaskQueueItem = {
   action: "BUY" | "SELL";
   note: string;
   sibling_id?: number | null;
+  sell_origin?: string;
 };
 
 export type PassedTaskItem = {
@@ -51,6 +53,7 @@ export type PassedTaskItem = {
   hit_price: number;
   note: string;
   at: string;
+  sell_origin?: string;
 };
 
 export type ClosedTaskItem = {
@@ -98,12 +101,13 @@ export async function fetchTaskEngineSymbols(): Promise<string[]> {
 
 export async function initTaskEngine(
   symbol: string,
-  x0: number
+  x0: number,
+  coin_qty: number = 0
 ): Promise<TaskEnginePriceResponse> {
   const res = await fetch(`${API}/task-engine/init`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ symbol: symbol.trim().toUpperCase(), x0 }),
+    body: JSON.stringify({ symbol: symbol.trim().toUpperCase(), x0, coin_qty }),
   });
   return await res.json();
 }
@@ -136,4 +140,61 @@ export type LivePrices = Record<string, number>;
 export async function fetchLivePrices(): Promise<LivePrices> {
   const res = await fetch(`${API}/task-engine/live-prices`);
   return await res.json();
+}
+
+// --------------- Settings ---------------
+
+export type SettingsItem = {
+  symbol: string;
+  sell_down_pct: number;
+  sell_up_pct: number;
+};
+
+export async function fetchSettings(): Promise<SettingsItem[]> {
+  const res = await fetch(`${API}/task-engine/settings`);
+  const data = await res.json();
+  return data.settings ?? [];
+}
+
+export async function saveSettings(
+  symbol: string,
+  sell_down_pct: number,
+  sell_up_pct: number
+): Promise<{ ok?: boolean; error?: string }> {
+  const res = await fetch(`${API}/task-engine/settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbol: symbol.trim().toUpperCase(),
+      sell_down_pct,
+      sell_up_pct,
+    }),
+  });
+  return await res.json();
+}
+
+// --------------- Summary ---------------
+
+export type SummaryRow = TaskQueueItem & {
+  coin_qty: number;
+  coins_to_trade: number;
+  target_price: number;
+};
+
+export type SummarySymbol = {
+  symbol: string;
+  state: TaskEngineState;
+  settings: SettingsItem;
+  sell_down: SummaryRow[];
+  buy_down: SummaryRow[];
+  sell_up: SummaryRow[];
+  total_sell_down_coins: number;
+  total_buy_down_coins: number;
+  total_sell_up_coins: number;
+};
+
+export async function fetchSummary(): Promise<SummarySymbol[]> {
+  const res = await fetch(`${API}/task-engine/summary`);
+  const data = await res.json();
+  return data.summary ?? [];
 }

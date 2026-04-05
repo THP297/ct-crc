@@ -13,10 +13,11 @@ def _spawn_pair(
     t1_dir: str, t1_target: float, t1_action: str, t1_note: str,
     t2_dir: str, t2_target: float, t2_action: str, t2_note: str,
     add_fn, update_sibling_fn,
+    t1_sell_origin: str = "", t2_sell_origin: str = "",
 ) -> list[dict]:
     """Create two tasks and link them as siblings."""
-    t1 = add_fn(symbol, t1_dir, t1_target, t1_action, t1_note)
-    t2 = add_fn(symbol, t2_dir, t2_target, t2_action, t2_note)
+    t1 = add_fn(symbol, t1_dir, t1_target, t1_action, t1_note, sell_origin=t1_sell_origin)
+    t2 = add_fn(symbol, t2_dir, t2_target, t2_action, t2_note, sell_origin=t2_sell_origin)
 
     if t1 and t2:
         update_sibling_fn(t1["id"], t2["id"])
@@ -144,6 +145,7 @@ def process_new_price(symbol: str, new_x: float) -> dict[str, Any]:
                     hit_pct=current_pct,
                     hit_price=new_x,
                     note=task.get("note", ""),
+                    sell_origin=task.get("sell_origin", ""),
                 )
 
                 _cancel_sibling(symbol, task, current_pct, new_x, tasks)
@@ -216,7 +218,8 @@ def _spawn_after_trigger(
         _cancel_all_pending_sell_up(symbol, current_pct, current_x)
 
         t_buy = add_fn(symbol, "DOWN", base - 3.0, "BUY",
-                       f"BUY lại nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)")
+                       f"BUY lại nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)",
+                       sell_origin="SELL_DOWN")
         t_sell_down = add_fn(symbol, "DOWN", base - 2.0, "SELL",
                              f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
         t_sell_up = add_fn(symbol, "UP", base + 3.0, "SELL",
@@ -230,7 +233,8 @@ def _spawn_after_trigger(
 
     # direction == "UP" → 3 tasks
     t_buy = add_fn(symbol, "DOWN", base - 2.5, "BUY",
-                   f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)")
+                   f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)",
+                   sell_origin="SELL_UP")
     t_sell_down = add_fn(symbol, "DOWN", base - 2.0, "SELL",
                          f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
     t_sell_up = add_fn(symbol, "UP", base + 3.0, "SELL",
@@ -243,7 +247,7 @@ def _spawn_after_trigger(
     return [t for t in (t_buy, t_sell_down, t_sell_up) if t]
 
 
-def init_engine(symbol: str, x0: float) -> dict[str, Any]:
+def init_engine(symbol: str, x0: float, coin_qty: float = 0.0) -> dict[str, Any]:
     """
     Khởi tạo engine cho symbol với giá gốc x0.
     Spawn ngay 2 task mặc định (sibling pair): DOWN/SELL -2% | UP/SELL +3%.
@@ -256,6 +260,7 @@ def init_engine(symbol: str, x0: float) -> dict[str, Any]:
         add_task_to_queue,
         update_task_sibling_id,
         load_task_queue,
+        ensure_settings,
     )
 
     if x0 <= 0:
@@ -264,6 +269,7 @@ def init_engine(symbol: str, x0: float) -> dict[str, Any]:
     clear_task_queue_for_symbol(symbol)
     clear_passed_tasks_for_symbol(symbol)
     clear_closed_tasks_for_symbol(symbol)
+    ensure_settings(symbol)
 
     state = {
         "symbol": symbol,
@@ -271,6 +277,7 @@ def init_engine(symbol: str, x0: float) -> dict[str, Any]:
         "current_x": x0,
         "current_pct": 0.0,
         "seeded": True,
+        "coin_qty": coin_qty,
     }
     save_task_engine_state(symbol, state)
 
