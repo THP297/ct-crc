@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchCurrentPrice,
   fetchLivePrices,
@@ -12,6 +12,7 @@ import {
   priceBroadcast,
   deleteEngine,
   fetchPriceHistory,
+  fetchValidX0,
   type TaskQueueItem,
   type PassedTaskItem,
   type ClosedTaskItem,
@@ -20,6 +21,8 @@ import {
   type SummarySymbol,
   type Section,
   type PriceHistoryItem,
+  type ValidX0Response,
+  type ValidX0Item,
 } from "./api";
 import "./App.css";
 
@@ -64,6 +67,15 @@ function App() {
   const [newSectionName, setNewSectionName] = useState("");
   const [newSectionX0, setNewSectionX0] = useState("");
   const [newSectionQty, setNewSectionQty] = useState("");
+
+  // Valid x0 hint (for create section form)
+  const [validX0, setValidX0] = useState<ValidX0Response | null>(null);
+  const [createError, setCreateError] = useState<{
+    msg: string;
+    validPrices: ValidX0Item[];
+    firstSectionName: string;
+  } | null>(null);
+  const validX0TimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Price broadcast
   const [broadcastPrice, setBroadcastPrice] = useState("");
@@ -174,6 +186,23 @@ function App() {
     fetchSummary().then(setSummaryData);
   }, [page]);
 
+  // Debounced auto-fetch valid x0 when symbol input changes in Create Section form
+  useEffect(() => {
+    setValidX0(null);
+    setCreateError(null);
+    if (validX0TimerRef.current) clearTimeout(validX0TimerRef.current);
+    const sym = newSectionSymbol.trim().toUpperCase();
+    if (!sym) return;
+    validX0TimerRef.current = setTimeout(() => {
+      fetchValidX0(sym)
+        .then(setValidX0)
+        .catch(() => setValidX0(null));
+    }, 500);
+    return () => {
+      if (validX0TimerRef.current) clearTimeout(validX0TimerRef.current);
+    };
+  }, [newSectionSymbol]);
+
   const selectedSection = allSections.find(
     (s) => s.id === selectedSectionId
   );
@@ -188,10 +217,20 @@ function App() {
     const x0 = parseFloat(newSectionX0.replace(/,/g, "").trim());
     if (!sym || !name || isNaN(x0) || x0 <= 0) return;
     const qty = parseFloat(newSectionQty.replace(/,/g, "").trim()) || 0;
+    setCreateError(null);
     const result = await createSection(sym, name, x0, qty);
     if (result.error) {
-      setEngineMessage(result.error);
+      if (result.valid_prices && result.valid_prices.length > 0) {
+        setCreateError({
+          msg: result.error,
+          validPrices: result.valid_prices,
+          firstSectionName: result.first_section_name ?? "",
+        });
+      } else {
+        setEngineMessage(result.error);
+      }
     } else {
+      setCreateError(null);
       setEngineMessage(
         `Created section "${name}" for ${sym} with x0=${formatPrice(x0)}, qty=${qty}`
       );
@@ -199,6 +238,7 @@ function App() {
       setNewSectionName("");
       setNewSectionX0("");
       setNewSectionQty("");
+      setValidX0(null);
       await loadAllSections();
       setSelectedSymbol(sym);
       if (result.section) setSelectedSectionId(result.section.id);
@@ -325,7 +365,10 @@ function App() {
                   type="text"
                   placeholder="Symbol (e.g. ETHUSDT)"
                   value={newSectionSymbol}
-                  onChange={(e) => setNewSectionSymbol(e.target.value)}
+                  onChange={(e) => {
+                    setNewSectionSymbol(e.target.value);
+                    setCreateError(null);
+                  }}
                 />
                 <input
                   type="text"
@@ -333,12 +376,66 @@ function App() {
                   value={newSectionName}
                   onChange={(e) => setNewSectionName(e.target.value)}
                 />
-                <input
-                  type="text"
-                  placeholder="Giá mua x0"
-                  value={newSectionX0}
-                  onChange={(e) => setNewSectionX0(e.target.value)}
-                />
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <input
+                    type="text"
+                    placeholder="Giá mua x0"
+                    value={newSectionX0}
+                    onChange={(e) => {
+                      setNewSectionX0(e.target.value);
+                      setCreateError(null);
+                    }}
+                  />
+                  {/* Valid x0 hint: show when symbol has existing sections */}
+                  {validX0?.requires_validation && validX0.valid_prices.length > 0 && (
+                    <div className="valid-x0-hint">
+                      <span className="valid-x0-hint-label">
+                        Giá x0 hợp lệ (từ SELL pending của section&nbsp;
+                        <strong>{validX0.first_section?.name}</strong>):
+                      </span>
+                      <div className="valid-x0-chips">
+                        {validX0.valid_prices.map((vp) => (
+                          <button
+                            key={`${vp.direction}-${vp.target_pct}`}
+                            type="button"
+                            className={`valid-x0-chip ${vp.direction === "DOWN" ? "chip-down" : "chip-up"}`}
+                            onClick={() => {
+                              setNewSectionX0(vp.target_x.toFixed(2));
+                              setCreateError(null);
+                            }}
+                          >
+                            SELL {vp.direction}&nbsp;{vp.target_pct > 0 ? "+" : ""}{vp.target_pct.toFixed(4)}%
+                            &nbsp;→&nbsp;{formatPrice(vp.target_x)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Error with valid price chips */}
+                  {createError && (
+                    <div className="valid-x0-error">
+                      <span>{createError.msg}</span>
+                      {createError.validPrices.length > 0 && (
+                        <div className="valid-x0-chips" style={{ marginTop: "6px" }}>
+                          {createError.validPrices.map((vp) => (
+                            <button
+                              key={`err-${vp.direction}-${vp.target_pct}`}
+                              type="button"
+                              className={`valid-x0-chip ${vp.direction === "DOWN" ? "chip-down" : "chip-up"}`}
+                              onClick={() => {
+                                setNewSectionX0(vp.target_x.toFixed(2));
+                                setCreateError(null);
+                              }}
+                            >
+                              SELL {vp.direction}&nbsp;{vp.target_pct > 0 ? "+" : ""}{vp.target_pct.toFixed(4)}%
+                              &nbsp;→&nbsp;{formatPrice(vp.target_x)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <input
                   type="text"
                   placeholder="Số lượng coin"

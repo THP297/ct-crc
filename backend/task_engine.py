@@ -351,12 +351,42 @@ def get_all_engine_symbols() -> list[str]:
 # SECTION-BASED API
 # ──────────────────────────────────────────────────────────────
 
+def get_valid_x0_for_symbol(symbol: str) -> dict[str, Any]:
+    """
+    Return valid x0 prices for a new section of this symbol.
+    Based on pending SELL tasks of the first (oldest) section.
+    If no sections exist yet → any x0 is valid (requires_validation=False).
+    """
+    from .store import load_sections, load_task_queue_by_section
+
+    sections = load_sections(symbol)
+    if not sections:
+        return {"requires_validation": False, "valid_prices": [], "first_section": None}
+
+    first = sections[0]
+    tasks = load_task_queue_by_section(first["id"])
+    valid = [
+        {
+            "target_x": first["x0"] * (1.0 + t["target_pct"] / 100.0),
+            "target_pct": t["target_pct"],
+            "direction": t["direction"],
+        }
+        for t in tasks if t["action"] == "SELL"
+    ]
+    return {
+        "requires_validation": True,
+        "first_section": {"id": first["id"], "name": first["name"]},
+        "valid_prices": valid,
+    }
+
+
 def create_section(symbol: str, name: str, x0: float, coin_qty: float = 0.0) -> dict[str, Any]:
     from .store import (
         create_section as _create_section,
         add_task_to_queue_for_section,
         update_task_sibling_id,
         load_task_queue_by_section,
+        load_sections,
         ensure_settings,
     )
 
@@ -364,6 +394,31 @@ def create_section(symbol: str, name: str, x0: float, coin_qty: float = 0.0) -> 
         return {"error": "Base price must be > 0"}
     if not name.strip():
         return {"error": "Section name is required"}
+
+    # Validate x0 against first section's pending SELL prices (if symbol already has sections)
+    existing = load_sections(symbol)
+    if existing:
+        first = existing[0]
+        first_tasks = load_task_queue_by_section(first["id"])
+        sell_tasks = [t for t in first_tasks if t["action"] == "SELL"]
+        valid_prices = [first["x0"] * (1.0 + t["target_pct"] / 100.0) for t in sell_tasks]
+        if valid_prices and not any(abs(x0 - vp) < 0.01 for vp in valid_prices):
+            return {
+                "error": (
+                    f"x0={x0:,.2f} không hợp lệ cho {symbol}. "
+                    f"Giá nhập phải bằng đúng một trong các giá SELL pending "
+                    f"của section đầu tiên ('{first['name']}')."
+                ),
+                "valid_prices": [
+                    {
+                        "target_x": first["x0"] * (1.0 + t["target_pct"] / 100.0),
+                        "target_pct": t["target_pct"],
+                        "direction": t["direction"],
+                    }
+                    for t in sell_tasks
+                ],
+                "first_section_name": first["name"],
+            }
 
     ensure_settings(symbol)
 

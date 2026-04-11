@@ -226,7 +226,21 @@ export type CreateSectionResponse = {
   section?: Section;
   up_tasks?: TaskQueueItem[];
   down_tasks?: TaskQueueItem[];
+  valid_prices?: ValidX0Item[];
+  first_section_name?: string;
 };
+
+export interface ValidX0Item {
+  target_x: number;
+  target_pct: number;
+  direction: string;
+}
+
+export interface ValidX0Response {
+  requires_validation: boolean;
+  first_section: { id: number; name: string } | null;
+  valid_prices: ValidX0Item[];
+}
 
 export type PriceBroadcastResult = {
   section_id: number;
@@ -256,6 +270,13 @@ export async function fetchSections(
   const res = await fetch(url);
   const data = await res.json();
   return data.sections ?? [];
+}
+
+export async function fetchValidX0(symbol: string): Promise<ValidX0Response> {
+  const res = await fetch(
+    `${API}/task-engine/sections/valid-x0?symbol=${encodeURIComponent(symbol.trim().toUpperCase())}`
+  );
+  return await res.json();
 }
 
 export async function createSection(

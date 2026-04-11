@@ -570,3 +570,66 @@ td.empty {
   border-radius: 4px;
   line-height: 1.2;
 }
+
+/* Valid x0 hint box */
+.valid-x0-hint {
+  background: #0e1c30;
+  border: 1px solid #1e3a5f;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.valid-x0-hint-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.valid-x0-error {
+  background: #1f0d10;
+  border: 1px solid #6b1520;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: #f4b8bc;
+}
+
+.valid-x0-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.valid-x0-chip {
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-size: 0.78rem;
+  font-family: monospace;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.valid-x0-chip:hover {
+  opacity: 0.8;
+}
+
+.chip-down {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.chip-down:hover {
+  background: rgba(244, 33, 46, 0.12);
+}
+
+.chip-up {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.chip-up:hover {
+  background: rgba(0, 186, 124, 0.12);
+}

@@ -66,6 +66,7 @@ def index():
             "/api/task-engine/settings",
             "/api/task-engine/summary",
             "/api/task-engine/sections",
+            "/api/task-engine/sections/valid-x0",
             "/api/task-engine/price-broadcast",
             "/api/task-engine/price-history",
         ],
@@ -189,6 +190,15 @@ def api_live_prices():
 
 
 # --------------- Sections API ---------------
+
+@app.route("/api/task-engine/sections/valid-x0")
+def api_sections_valid_x0():
+    symbol = (request.args.get("symbol") or "").strip().upper()
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    from .task_engine import get_valid_x0_for_symbol
+    return jsonify(get_valid_x0_for_symbol(symbol))
+
 
 @app.route("/api/task-engine/sections", methods=["GET"])
 def api_sections_list():
