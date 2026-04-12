@@ -220,8 +220,8 @@ def _spawn_after_trigger(
         t_buy = add_fn(symbol, "DOWN", base - 3.0, "BUY",
                        f"BUY lại nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)",
                        sell_origin="SELL_DOWN")
-        t_sell_down = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                             f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
+        t_sell_down = add_fn(symbol, "DOWN", base - 3.0, "SELL",
+                             f"SELL (stop-loss) nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)")
         t_sell_up = add_fn(symbol, "UP", base + 3.0, "SELL",
                            f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
         if t_sell_down and t_sell_up:
@@ -235,8 +235,8 @@ def _spawn_after_trigger(
     t_buy = add_fn(symbol, "DOWN", base - 2.5, "BUY",
                    f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)",
                    sell_origin="SELL_UP")
-    t_sell_down = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                         f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
+    t_sell_down = add_fn(symbol, "DOWN", base - 3.0, "SELL",
+                         f"SELL (stop-loss) nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)")
     t_sell_up = add_fn(symbol, "UP", base + 3.0, "SELL",
                        f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
     if t_sell_down and t_sell_up:
@@ -282,12 +282,12 @@ def init_engine(symbol: str, x0: float, coin_qty: float = 0.0) -> dict[str, Any]
     save_task_engine_state(symbol, state)
 
     base = 0.0
-    down_t = base - 2.0
+    down_t = base - 3.0
     up_t = base + 3.0
     _spawn_pair(
         symbol,
         "DOWN", down_t, "SELL",
-        f"SELL nếu x giảm 2% (tới {down_t:+.4f}%)",
+        f"SELL nếu x giảm 3% (tới {down_t:+.4f}%)",
         "UP", up_t, "SELL",
         f"SELL nếu x tăng 3% (tới {up_t:+.4f}%)",
         add_task_to_queue, update_task_sibling_id,
@@ -457,11 +457,11 @@ def create_section(symbol: str, name: str, x0: float, coin_qty: float = 0.0) -> 
             section_id, sym, direction, target_pct, action, note, sell_origin=sell_origin)
 
     base = 0.0
-    down_t = base - 2.0
+    down_t = base - 3.0
     up_t = base + 3.0
     _spawn_pair(
         symbol, "DOWN", down_t, "SELL",
-        f"SELL nếu x giảm 2% (tới {down_t:+.4f}%)",
+        f"SELL nếu x giảm 3% (tới {down_t:+.4f}%)",
         "UP", up_t, "SELL",
         f"SELL nếu x tăng 3% (tới {up_t:+.4f}%)",
         add_fn, update_task_sibling_id,
@@ -606,8 +606,8 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
                     t_buy = add_fn(symbol, "DOWN", base - 3.0, "BUY",
                                    f"BUY lại nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)",
                                    sell_origin="SELL_DOWN")
-                    t_sd = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                                  f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
+                    t_sd = add_fn(symbol, "DOWN", base - 3.0, "SELL",
+                                  f"SELL (stop-loss) nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)")
                     if not below_x0:
                         t_su = add_fn(symbol, "UP", base + 3.0, "SELL",
                                       f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
@@ -621,8 +621,8 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
                     t_buy = add_fn(symbol, "DOWN", base - 2.5, "BUY",
                                    f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)",
                                    sell_origin="SELL_UP")
-                    t_sd = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                                  f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
+                    t_sd = add_fn(symbol, "DOWN", base - 3.0, "SELL",
+                                  f"SELL (stop-loss) nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)")
                     if not below_x0:
                         t_su = add_fn(symbol, "UP", base + 3.0, "SELL",
                                       f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
