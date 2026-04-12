@@ -226,20 +226,24 @@ export type CreateSectionResponse = {
   section?: Section;
   up_tasks?: TaskQueueItem[];
   down_tasks?: TaskQueueItem[];
-  valid_prices?: ValidX0Item[];
+  nearest_prices?: ValidX0Item[];
+  base_x0?: number;
+  grid_step_pct?: number;
   first_section_name?: string;
 };
 
 export interface ValidX0Item {
   target_x: number;
-  target_pct: number;
-  direction: string;
+  n: number;    // grid step index: negative = below base, positive = above
+  pct: number;  // = n × grid_step_pct
 }
 
 export interface ValidX0Response {
   requires_validation: boolean;
   first_section: { id: number; name: string } | null;
-  valid_prices: ValidX0Item[];
+  base_x0: number | null;
+  grid_step_pct: number;
+  sample_prices: ValidX0Item[];
 }
 
 export type PriceBroadcastResult = {

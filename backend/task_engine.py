@@ -351,32 +351,62 @@ def get_all_engine_symbols() -> list[str]:
 # SECTION-BASED API
 # ──────────────────────────────────────────────────────────────
 
+_GRID_STEP_PCT = 3.0
+_GRID_TOL = 1e-4
+
+
+def _grid_is_valid(base_x0: float, x0: float) -> tuple[bool, int]:
+    """Return (is_valid, n) where n is the grid step index."""
+    pct = (x0 / base_x0 - 1.0) * 100.0
+    if abs(pct) < _GRID_TOL:
+        return False, 0
+    n = pct / _GRID_STEP_PCT
+    n_round = round(n)
+    return abs(n - n_round) < _GRID_TOL, n_round
+
+
+def _grid_price(base_x0: float, n: int) -> dict[str, Any]:
+    return {
+        "n": n,
+        "pct": n * _GRID_STEP_PCT,
+        "target_x": base_x0 * (1.0 + n * _GRID_STEP_PCT / 100.0),
+    }
+
+
+def _nearest_grid_prices(base_x0: float, x0: float) -> list[dict[str, Any]]:
+    pct = (x0 / base_x0 - 1.0) * 100.0
+    n_raw = pct / _GRID_STEP_PCT
+    candidates = sorted({int(n_raw) - 1, int(n_raw), int(n_raw) + 1, int(n_raw) + 2})
+    return [_grid_price(base_x0, n) for n in candidates if n != 0]
+
+
 def get_valid_x0_for_symbol(symbol: str) -> dict[str, Any]:
     """
-    Return valid x0 prices for a new section of this symbol.
-    Based on pending SELL tasks of the first (oldest) section.
+    Return grid info for a new section of this symbol.
+    Valid x0 = base_x0 × (1 + n×3%) for any non-zero integer n.
     If no sections exist yet → any x0 is valid (requires_validation=False).
     """
-    from .store import load_sections, load_task_queue_by_section
+    from .store import load_sections
 
     sections = load_sections(symbol)
     if not sections:
-        return {"requires_validation": False, "valid_prices": [], "first_section": None}
+        return {
+            "requires_validation": False,
+            "base_x0": None,
+            "grid_step_pct": _GRID_STEP_PCT,
+            "sample_prices": [],
+            "first_section": None,
+        }
 
     first = sections[0]
-    tasks = load_task_queue_by_section(first["id"])
-    valid = [
-        {
-            "target_x": first["x0"] * (1.0 + t["target_pct"] / 100.0),
-            "target_pct": t["target_pct"],
-            "direction": t["direction"],
-        }
-        for t in tasks if t["action"] == "SELL"
-    ]
+    base_x0 = first["x0"]
+    sample = [_grid_price(base_x0, n) for n in range(-3, 4) if n != 0]
     return {
         "requires_validation": True,
         "first_section": {"id": first["id"], "name": first["name"]},
-        "valid_prices": valid,
+        "base_x0": base_x0,
+        "grid_step_pct": _GRID_STEP_PCT,
+        "sample_prices": sample,
     }
 
 
@@ -395,28 +425,22 @@ def create_section(symbol: str, name: str, x0: float, coin_qty: float = 0.0) -> 
     if not name.strip():
         return {"error": "Section name is required"}
 
-    # Validate x0 against first section's pending SELL prices (if symbol already has sections)
+    # Validate x0 against 3% grid of the first section's base price
     existing = load_sections(symbol)
     if existing:
         first = existing[0]
-        first_tasks = load_task_queue_by_section(first["id"])
-        sell_tasks = [t for t in first_tasks if t["action"] == "SELL"]
-        valid_prices = [first["x0"] * (1.0 + t["target_pct"] / 100.0) for t in sell_tasks]
-        if valid_prices and not any(abs(x0 - vp) < 0.01 for vp in valid_prices):
+        base_x0 = first["x0"]
+        on_grid, _ = _grid_is_valid(base_x0, x0)
+        if not on_grid:
             return {
                 "error": (
                     f"x0={x0:,.2f} không hợp lệ cho {symbol}. "
-                    f"Giá nhập phải bằng đúng một trong các giá SELL pending "
-                    f"của section đầu tiên ('{first['name']}')."
+                    f"Phải là bội số {_GRID_STEP_PCT:.0f}% từ base_x0={base_x0:,.2f} "
+                    f"của section '{first['name']}' (x0 = base × (1 + n×3%), n≠0)."
                 ),
-                "valid_prices": [
-                    {
-                        "target_x": first["x0"] * (1.0 + t["target_pct"] / 100.0),
-                        "target_pct": t["target_pct"],
-                        "direction": t["direction"],
-                    }
-                    for t in sell_tasks
-                ],
+                "base_x0": base_x0,
+                "grid_step_pct": _GRID_STEP_PCT,
+                "nearest_prices": _nearest_grid_prices(base_x0, x0),
                 "first_section_name": first["name"],
             }
 

@@ -72,7 +72,7 @@ function App() {
   const [validX0, setValidX0] = useState<ValidX0Response | null>(null);
   const [createError, setCreateError] = useState<{
     msg: string;
-    validPrices: ValidX0Item[];
+    nearestPrices: ValidX0Item[];
     firstSectionName: string;
   } | null>(null);
   const validX0TimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -220,10 +220,10 @@ function App() {
     setCreateError(null);
     const result = await createSection(sym, name, x0, qty);
     if (result.error) {
-      if (result.valid_prices && result.valid_prices.length > 0) {
+      if (result.nearest_prices && result.nearest_prices.length > 0) {
         setCreateError({
           msg: result.error,
-          validPrices: result.valid_prices,
+          nearestPrices: result.nearest_prices,
           firstSectionName: result.first_section_name ?? "",
         });
       } else {
@@ -386,48 +386,51 @@ function App() {
                       setCreateError(null);
                     }}
                   />
-                  {/* Valid x0 hint: show when symbol has existing sections */}
-                  {validX0?.requires_validation && validX0.valid_prices.length > 0 && (
+                  {/* Valid x0 hint: show grid info when symbol has existing sections */}
+                  {validX0?.requires_validation && validX0.sample_prices.length > 0 && (
                     <div className="valid-x0-hint">
                       <span className="valid-x0-hint-label">
-                        Giá x0 hợp lệ (từ SELL pending của section&nbsp;
-                        <strong>{validX0.first_section?.name}</strong>):
+                        Giá x0 hợp lệ — lưới&nbsp;
+                        <strong>{validX0.grid_step_pct}%</strong>
+                        &nbsp;từ base&nbsp;
+                        <strong>{validX0.base_x0 != null ? formatPrice(validX0.base_x0) : ""}</strong>
+                        &nbsp;(section&nbsp;<strong>{validX0.first_section?.name}</strong>):
                       </span>
                       <div className="valid-x0-chips">
-                        {validX0.valid_prices.map((vp) => (
+                        {validX0.sample_prices.map((vp) => (
                           <button
-                            key={`${vp.direction}-${vp.target_pct}`}
+                            key={`grid-${vp.n}`}
                             type="button"
-                            className={`valid-x0-chip ${vp.direction === "DOWN" ? "chip-down" : "chip-up"}`}
+                            className={`valid-x0-chip ${vp.n < 0 ? "chip-down" : "chip-up"}`}
                             onClick={() => {
                               setNewSectionX0(vp.target_x.toFixed(2));
                               setCreateError(null);
                             }}
                           >
-                            SELL {vp.direction}&nbsp;{vp.target_pct > 0 ? "+" : ""}{vp.target_pct.toFixed(4)}%
+                            n={vp.n > 0 ? "+" : ""}{vp.n}&nbsp;({vp.pct > 0 ? "+" : ""}{vp.pct.toFixed(1)}%)
                             &nbsp;→&nbsp;{formatPrice(vp.target_x)}
                           </button>
                         ))}
                       </div>
                     </div>
                   )}
-                  {/* Error with valid price chips */}
+                  {/* Error with nearest grid price chips */}
                   {createError && (
                     <div className="valid-x0-error">
                       <span>{createError.msg}</span>
-                      {createError.validPrices.length > 0 && (
+                      {createError.nearestPrices.length > 0 && (
                         <div className="valid-x0-chips" style={{ marginTop: "6px" }}>
-                          {createError.validPrices.map((vp) => (
+                          {createError.nearestPrices.map((vp) => (
                             <button
-                              key={`err-${vp.direction}-${vp.target_pct}`}
+                              key={`err-${vp.n}`}
                               type="button"
-                              className={`valid-x0-chip ${vp.direction === "DOWN" ? "chip-down" : "chip-up"}`}
+                              className={`valid-x0-chip ${vp.n < 0 ? "chip-down" : "chip-up"}`}
                               onClick={() => {
                                 setNewSectionX0(vp.target_x.toFixed(2));
                                 setCreateError(null);
                               }}
                             >
-                              SELL {vp.direction}&nbsp;{vp.target_pct > 0 ? "+" : ""}{vp.target_pct.toFixed(4)}%
+                              n={vp.n > 0 ? "+" : ""}{vp.n}&nbsp;({vp.pct > 0 ? "+" : ""}{vp.pct.toFixed(1)}%)
                               &nbsp;→&nbsp;{formatPrice(vp.target_x)}
                             </button>
                           ))}
