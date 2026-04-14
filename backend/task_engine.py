@@ -556,18 +556,38 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
                         f"Sibling #{triggered_task['id']} [{triggered_task['direction']}] triggered",
                         sibling_triggered_id=triggered_task["id"])
 
-    def cancel_all_sell_up_sec():
+    def cancel_all_sell_tasks_sec():
+        """Cancel all pending SELL tasks (both UP and DOWN). Keep BUY tasks."""
         tasks = load_task_queue_by_section(section_id)
         for t in tasks:
-            if t["direction"] == "UP" and t["action"] == "SELL":
+            if t["action"] == "SELL":
                 sib_id = t.get("sibling_id")
                 if sib_id:
                     update_task_sibling_id(sib_id, 0)
-                cancel_task_sec(t, "SELL DOWN triggered — reset SELL UP cũ")
+                cancel_task_sec(t, "price-update reset — xoá SELL cũ")
 
     def add_fn(sym, direction, target_pct, action, note, sell_origin=""):
         return add_task_to_queue_for_section(
             section_id, sym, direction, target_pct, action, note, sell_origin=sell_origin)
+
+    def spawn_sell_pair_sec() -> list:
+        """Spawn fresh SELL pair anchored to current_pct. Returns list of spawned tasks."""
+        base = current_pct
+        t_sd = add_fn(symbol, "DOWN", base - 2.0, "SELL",
+                      f"SELL (stop-loss) nếu x giảm 2% (tới {base - 2.0:+.4f}%)")
+        if new_x >= x0:
+            t_su = add_fn(symbol, "UP", base + 3.0, "SELL",
+                          f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
+            if t_sd and t_su:
+                update_task_sibling_id(t_sd["id"], t_su["id"])
+                update_task_sibling_id(t_su["id"], t_sd["id"])
+            return [t for t in (t_sd, t_su) if t]
+        return [t for t in (t_sd,) if t]
+
+    # Reset all pending SELL tasks, then spawn a fresh SELL pair at the new price.
+    # This ensures SELL targets always reflect the latest price, even without a trigger.
+    cancel_all_sell_tasks_sec()
+    spawned.extend(spawn_sell_pair_sec())
 
     while True:
         triggered_any = False
@@ -593,45 +613,23 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
                 )
                 cancel_sibling_sec(task, tasks)
 
-                # Spawn after trigger
+                # After trigger: SELL pair already reset above — only spawn BUY task
                 action = task["action"]
                 direction = task["direction"]
                 base = current_pct
-                below_x0 = new_x < x0
                 new_tasks = []
                 if action == "BUY":
                     pass
                 elif direction == "DOWN":
-                    cancel_all_sell_up_sec()
                     t_buy = add_fn(symbol, "DOWN", base - 3.0, "BUY",
                                    f"BUY lại nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)",
                                    sell_origin="SELL_DOWN")
-                    t_sd = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                                  f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
-                    if not below_x0:
-                        t_su = add_fn(symbol, "UP", base + 3.0, "SELL",
-                                      f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
-                        if t_sd and t_su:
-                            update_task_sibling_id(t_sd["id"], t_su["id"])
-                            update_task_sibling_id(t_su["id"], t_sd["id"])
-                        new_tasks = [t for t in (t_buy, t_sd, t_su) if t]
-                    else:
-                        new_tasks = [t for t in (t_buy, t_sd) if t]
-                else:
+                    new_tasks = [t for t in (t_buy,) if t]
+                else:  # SELL UP
                     t_buy = add_fn(symbol, "DOWN", base - 2.5, "BUY",
                                    f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)",
                                    sell_origin="SELL_UP")
-                    t_sd = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                                  f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
-                    if not below_x0:
-                        t_su = add_fn(symbol, "UP", base + 3.0, "SELL",
-                                      f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
-                        if t_sd and t_su:
-                            update_task_sibling_id(t_sd["id"], t_su["id"])
-                            update_task_sibling_id(t_su["id"], t_sd["id"])
-                        new_tasks = [t for t in (t_buy, t_sd, t_su) if t]
-                    else:
-                        new_tasks = [t for t in (t_buy, t_sd) if t]
+                    new_tasks = [t for t in (t_buy,) if t]
 
                 triggered.append(task)
                 spawned.extend(new_tasks)
