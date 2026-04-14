@@ -1110,7 +1110,7 @@ function App() {
                             <tr key={r.id}>
                               <td>{r.section_name}</td>
                               <td>{r.id}</td>
-                              <td className="pct-down">
+                              <td className="pct-up">
                                 {r.target_pct >= 0 ? "+" : ""}
                                 {r.target_pct.toFixed(4)}%
                               </td>
