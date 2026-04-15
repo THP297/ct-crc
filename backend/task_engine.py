@@ -584,11 +584,10 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
             return [t for t in (t_sd, t_su) if t]
         return [t for t in (t_sd,) if t]
 
-    # Reset all pending SELL tasks, then spawn a fresh SELL pair at the new price.
-    # This ensures SELL targets always reflect the latest price, even without a trigger.
-    cancel_all_sell_tasks_sec()
-    spawned.extend(spawn_sell_pair_sec())
-
+    # 1. Process hits FIRST: old SELL tasks get a chance to trigger and spawn BUY tasks.
+    # 2. THEN reset all SELL tasks and spawn a fresh SELL pair at the new price.
+    # This guarantees: if price crosses SELL threshold → trigger → BUY spawned →
+    # only after that we clean up and place the new SELL pair at the current position.
     while True:
         triggered_any = False
         tasks = load_task_queue_by_section(section_id)
@@ -613,7 +612,8 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
                 )
                 cancel_sibling_sec(task, tasks)
 
-                # After trigger: SELL pair already reset above — only spawn BUY task
+                # After SELL trigger: spawn BUY task only
+                # (SELL pair will be reset + re-spawned after all hits are processed)
                 action = task["action"]
                 direction = task["direction"]
                 base = current_pct
@@ -637,6 +637,11 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
                 break
         if not triggered_any:
             break
+
+    # After all hits are processed: reset remaining SELL tasks, then spawn fresh SELL pair
+    # anchored to the current price position.
+    cancel_all_sell_tasks_sec()
+    spawned.extend(spawn_sell_pair_sec())
 
     return {
         "section_id": section_id,
