@@ -3,6 +3,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# =====================================================================
+# CÁC HẰNG SỐ TỶ LỆ (%) — CHỈ SỬA Ở ĐÂY
+# Mọi độ lệch là % so với x0 (hoặc current_pct). Dấu âm = phía dưới,
+# dấu dương = phía trên. Chuỗi ghi chú (note) tự sinh từ các hằng số này.
+# =====================================================================
+SELL_DOWN_OFFSET = -1.0          # SELL DOWN (stop-loss): seed + respawn cặp SELL
+SELL_UP_OFFSET = +1.5            # SELL UP (take-profit): seed + respawn cặp SELL
+BUY_AFTER_SELL_DOWN = -1.5       # BUY lại sau khi SELL DOWN bị trigger
+BUY_AFTER_SELL_UP = -1.0         # BUY lại sau khi SELL UP bị trigger
+SUPPLEMENT_SELL_UP_OFFSET = +1.5 # SELL UP bổ sung khi giá vượt x0 mà chưa có UP/SELL
+GRID_STEP_PCT = 3.0              # Bước % lưới cấp số cộng để validate x0 giữa các section
+
 
 def _value_to_pct(x0: float, x: float) -> float:
     return (x / x0 - 1.0) * 100.0
@@ -177,18 +189,18 @@ def process_new_price(symbol: str, new_x: float) -> dict[str, Any]:
                     update_task_sibling_id(old_sib_id, 0)
                     update_task_sibling_id(sell_down["id"], 0)
                 t_su = add_task_to_queue(
-                    symbol, "UP", base + 3.0, "SELL",
-                    f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%) [bổ sung sau khi vượt x0]",
+                    symbol, "UP", base + SUPPLEMENT_SELL_UP_OFFSET, "SELL",
+                    f"SELL (take-profit) nếu x tăng {abs(SUPPLEMENT_SELL_UP_OFFSET):g}% (tới {base + SUPPLEMENT_SELL_UP_OFFSET:+.4f}%) [bổ sung sau khi vượt x0]",
                 )
                 if t_su:
                     update_task_sibling_id(sell_down["id"], t_su["id"])
                     update_task_sibling_id(t_su["id"], sell_down["id"])
                     spawned.append(t_su)
             else:
-                t_sd = add_task_to_queue(symbol, "DOWN", base - 2.0, "SELL",
-                                         f"SELL (stop-loss) nếu x giảm 2% (tới {base - 2.0:+.4f}%)")
-                t_su = add_task_to_queue(symbol, "UP", base + 3.0, "SELL",
-                                         f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
+                t_sd = add_task_to_queue(symbol, "DOWN", base + SELL_DOWN_OFFSET, "SELL",
+                                         f"SELL (stop-loss) nếu x giảm {abs(SELL_DOWN_OFFSET):g}% (tới {base + SELL_DOWN_OFFSET:+.4f}%)")
+                t_su = add_task_to_queue(symbol, "UP", base + SELL_UP_OFFSET, "SELL",
+                                         f"SELL (take-profit) nếu x tăng {abs(SELL_UP_OFFSET):g}% (tới {base + SELL_UP_OFFSET:+.4f}%)")
                 if t_sd and t_su:
                     update_task_sibling_id(t_sd["id"], t_su["id"])
                     update_task_sibling_id(t_su["id"], t_sd["id"])
@@ -233,14 +245,8 @@ def _spawn_after_trigger(
     update_sibling_fn,
 ) -> list[dict]:
     """
-    Spawn tasks after trigger.
-    BUY trigger  → no spawn
-    SELL + DOWN  → cancel all pending SELL UP, then spawn:
-                     DOWN BUY  @ base-3%  (no sibling)
-                     DOWN SELL @ base-2%  ↔  UP SELL @ base+3%
-    SELL + UP    → spawn:
-                     DOWN BUY  @ base-2.5% (no sibling)
-                     DOWN SELL @ base-2%   ↔  UP SELL @ base+3%
+    Spawn task sau khi trigger (legacy). BUY trigger → không spawn;
+    SELL trigger → spawn BUY theo hằng số đầu file.
     """
     base = current_pct
 
@@ -250,13 +256,13 @@ def _spawn_after_trigger(
     if direction == "DOWN":
         _cancel_all_pending_sell_up(symbol, current_pct, current_x)
 
-        t_buy = add_fn(symbol, "DOWN", base - 3.0, "BUY",
-                       f"BUY lại nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)",
+        t_buy = add_fn(symbol, "DOWN", base + BUY_AFTER_SELL_DOWN, "BUY",
+                       f"BUY lại nếu x giảm thêm {abs(BUY_AFTER_SELL_DOWN):g}% (tới {base + BUY_AFTER_SELL_DOWN:+.4f}%)",
                        sell_origin="SELL_DOWN")
-        t_sell_down = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                             f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
-        t_sell_up = add_fn(symbol, "UP", base + 3.0, "SELL",
-                           f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
+        t_sell_down = add_fn(symbol, "DOWN", base + SELL_DOWN_OFFSET, "SELL",
+                             f"SELL (stop-loss) nếu x giảm thêm {abs(SELL_DOWN_OFFSET):g}% (tới {base + SELL_DOWN_OFFSET:+.4f}%)")
+        t_sell_up = add_fn(symbol, "UP", base + SELL_UP_OFFSET, "SELL",
+                           f"SELL (take-profit) nếu x tăng {abs(SELL_UP_OFFSET):g}% (tới {base + SELL_UP_OFFSET:+.4f}%)")
         if t_sell_down and t_sell_up:
             update_sibling_fn(t_sell_down["id"], t_sell_up["id"])
             update_sibling_fn(t_sell_up["id"], t_sell_down["id"])
@@ -265,13 +271,13 @@ def _spawn_after_trigger(
         return [t for t in (t_buy, t_sell_down, t_sell_up) if t]
 
     # direction == "UP" → 3 tasks
-    t_buy = add_fn(symbol, "DOWN", base - 2.5, "BUY",
-                   f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)",
+    t_buy = add_fn(symbol, "DOWN", base + BUY_AFTER_SELL_UP, "BUY",
+                   f"BUY lại nếu x giảm thêm {abs(BUY_AFTER_SELL_UP):g}% (tới {base + BUY_AFTER_SELL_UP:+.4f}%)",
                    sell_origin="SELL_UP")
-    t_sell_down = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                         f"SELL (stop-loss) nếu x giảm thêm 2% (tới {base - 2.0:+.4f}%)")
-    t_sell_up = add_fn(symbol, "UP", base + 3.0, "SELL",
-                       f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
+    t_sell_down = add_fn(symbol, "DOWN", base + SELL_DOWN_OFFSET, "SELL",
+                         f"SELL (stop-loss) nếu x giảm thêm {abs(SELL_DOWN_OFFSET):g}% (tới {base + SELL_DOWN_OFFSET:+.4f}%)")
+    t_sell_up = add_fn(symbol, "UP", base + SELL_UP_OFFSET, "SELL",
+                       f"SELL (take-profit) nếu x tăng {abs(SELL_UP_OFFSET):g}% (tới {base + SELL_UP_OFFSET:+.4f}%)")
     if t_sell_down and t_sell_up:
         update_sibling_fn(t_sell_down["id"], t_sell_up["id"])
         update_sibling_fn(t_sell_up["id"], t_sell_down["id"])
@@ -283,7 +289,7 @@ def _spawn_after_trigger(
 def init_engine(symbol: str, x0: float, coin_qty: float = 0.0) -> dict[str, Any]:
     """
     Khởi tạo engine cho symbol với giá gốc x0.
-    Spawn ngay 2 task mặc định (sibling pair): DOWN/SELL -2% | UP/SELL +3%.
+    Spawn ngay 2 task mặc định (sibling pair) theo SELL_DOWN_OFFSET / SELL_UP_OFFSET.
     """
     from .store import (
         save_task_engine_state,
@@ -315,14 +321,14 @@ def init_engine(symbol: str, x0: float, coin_qty: float = 0.0) -> dict[str, Any]
     save_task_engine_state(symbol, state)
 
     base = 0.0
-    down_t = base - 2.0
-    up_t = base + 3.0
+    down_t = base + SELL_DOWN_OFFSET
+    up_t = base + SELL_UP_OFFSET
     _spawn_pair(
         symbol,
         "DOWN", down_t, "SELL",
-        f"SELL nếu x giảm 2% (tới {down_t:+.4f}%)",
+        f"SELL nếu x giảm {abs(SELL_DOWN_OFFSET):g}% (tới {down_t:+.4f}%)",
         "UP", up_t, "SELL",
-        f"SELL nếu x tăng 3% (tới {up_t:+.4f}%)",
+        f"SELL nếu x tăng {abs(SELL_UP_OFFSET):g}% (tới {up_t:+.4f}%)",
         add_task_to_queue, update_task_sibling_id,
     )
 
@@ -384,7 +390,6 @@ def get_all_engine_symbols() -> list[str]:
 # SECTION-BASED API
 # ──────────────────────────────────────────────────────────────
 
-_GRID_STEP_PCT = 3.0
 _GRID_TOL = 1e-4
 
 
@@ -393,7 +398,7 @@ def _grid_is_valid(base_x0: float, x0: float) -> tuple[bool, int]:
     pct = (x0 / base_x0 - 1.0) * 100.0
     if abs(pct) < _GRID_TOL:
         return False, 0
-    n = pct / _GRID_STEP_PCT
+    n = pct / GRID_STEP_PCT
     n_round = round(n)
     return abs(n - n_round) < _GRID_TOL, n_round
 
@@ -401,14 +406,14 @@ def _grid_is_valid(base_x0: float, x0: float) -> tuple[bool, int]:
 def _grid_price(base_x0: float, n: int) -> dict[str, Any]:
     return {
         "n": n,
-        "pct": n * _GRID_STEP_PCT,
-        "target_x": base_x0 * (1.0 + n * _GRID_STEP_PCT / 100.0),
+        "pct": n * GRID_STEP_PCT,
+        "target_x": base_x0 * (1.0 + n * GRID_STEP_PCT / 100.0),
     }
 
 
 def _nearest_grid_prices(base_x0: float, x0: float) -> list[dict[str, Any]]:
     pct = (x0 / base_x0 - 1.0) * 100.0
-    n_raw = pct / _GRID_STEP_PCT
+    n_raw = pct / GRID_STEP_PCT
     candidates = sorted({int(n_raw) - 1, int(n_raw), int(n_raw) + 1, int(n_raw) + 2})
     return [_grid_price(base_x0, n) for n in candidates if n != 0]
 
@@ -416,7 +421,7 @@ def _nearest_grid_prices(base_x0: float, x0: float) -> list[dict[str, Any]]:
 def get_valid_x0_for_symbol(symbol: str) -> dict[str, Any]:
     """
     Return grid info for a new section of this symbol.
-    Valid x0 = base_x0 × (1 + n×3%) for any non-zero integer n.
+    Valid x0 = base_x0 × (1 + n×bước_lưới%), n nguyên ≠ 0.
     If no sections exist yet → any x0 is valid (requires_validation=False).
     """
     from .store import load_sections
@@ -426,7 +431,7 @@ def get_valid_x0_for_symbol(symbol: str) -> dict[str, Any]:
         return {
             "requires_validation": False,
             "base_x0": None,
-            "grid_step_pct": _GRID_STEP_PCT,
+            "grid_step_pct": GRID_STEP_PCT,
             "sample_prices": [],
             "first_section": None,
         }
@@ -438,7 +443,7 @@ def get_valid_x0_for_symbol(symbol: str) -> dict[str, Any]:
         "requires_validation": True,
         "first_section": {"id": first["id"], "name": first["name"]},
         "base_x0": base_x0,
-        "grid_step_pct": _GRID_STEP_PCT,
+        "grid_step_pct": GRID_STEP_PCT,
         "sample_prices": sample,
     }
 
@@ -458,7 +463,7 @@ def create_section(symbol: str, name: str, x0: float, coin_qty: float = 0.0) -> 
     if not name.strip():
         return {"error": "Section name is required"}
 
-    # Validate x0 against 3% grid of the first section's base price
+    # Validate x0 against the grid of the first section's base price
     existing = load_sections(symbol)
     if existing:
         first = existing[0]
@@ -468,11 +473,11 @@ def create_section(symbol: str, name: str, x0: float, coin_qty: float = 0.0) -> 
             return {
                 "error": (
                     f"x0={x0:,.2f} không hợp lệ cho {symbol}. "
-                    f"Phải là bội số {_GRID_STEP_PCT:.0f}% từ base_x0={base_x0:,.2f} "
-                    f"của section '{first['name']}' (x0 = base × (1 + n×3%), n≠0)."
+                    f"Phải là bội số {GRID_STEP_PCT:.0f}% từ base_x0={base_x0:,.2f} "
+                    f"của section '{first['name']}' (x0 = base × (1 + n×{GRID_STEP_PCT:.0f}%), n≠0)."
                 ),
                 "base_x0": base_x0,
-                "grid_step_pct": _GRID_STEP_PCT,
+                "grid_step_pct": GRID_STEP_PCT,
                 "nearest_prices": _nearest_grid_prices(base_x0, x0),
                 "first_section_name": first["name"],
             }
@@ -490,13 +495,13 @@ def create_section(symbol: str, name: str, x0: float, coin_qty: float = 0.0) -> 
             section_id, sym, direction, target_pct, action, note, sell_origin=sell_origin)
 
     base = 0.0
-    down_t = base - 2.0
-    up_t = base + 3.0
+    down_t = base + SELL_DOWN_OFFSET
+    up_t = base + SELL_UP_OFFSET
     _spawn_pair(
         symbol, "DOWN", down_t, "SELL",
-        f"SELL nếu x giảm 2% (tới {down_t:+.4f}%)",
+        f"SELL nếu x giảm {abs(SELL_DOWN_OFFSET):g}% (tới {down_t:+.4f}%)",
         "UP", up_t, "SELL",
-        f"SELL nếu x tăng 3% (tới {up_t:+.4f}%)",
+        f"SELL nếu x tăng {abs(SELL_UP_OFFSET):g}% (tới {up_t:+.4f}%)",
         add_fn, update_task_sibling_id,
     )
 
@@ -606,11 +611,11 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
     def spawn_sell_pair_sec() -> list:
         """Spawn fresh SELL pair anchored to current_pct. Returns list of spawned tasks."""
         base = current_pct
-        t_sd = add_fn(symbol, "DOWN", base - 2.0, "SELL",
-                      f"SELL (stop-loss) nếu x giảm 2% (tới {base - 2.0:+.4f}%)")
+        t_sd = add_fn(symbol, "DOWN", base + SELL_DOWN_OFFSET, "SELL",
+                      f"SELL (stop-loss) nếu x giảm {abs(SELL_DOWN_OFFSET):g}% (tới {base + SELL_DOWN_OFFSET:+.4f}%)")
         if new_x >= x0:
-            t_su = add_fn(symbol, "UP", base + 3.0, "SELL",
-                          f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%)")
+            t_su = add_fn(symbol, "UP", base + SELL_UP_OFFSET, "SELL",
+                          f"SELL (take-profit) nếu x tăng {abs(SELL_UP_OFFSET):g}% (tới {base + SELL_UP_OFFSET:+.4f}%)")
             if t_sd and t_su:
                 update_task_sibling_id(t_sd["id"], t_su["id"])
                 update_task_sibling_id(t_su["id"], t_sd["id"])
@@ -638,8 +643,8 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
             if old_sib_id:
                 update_task_sibling_id(old_sib_id, 0)
                 update_task_sibling_id(sell_down["id"], 0)
-            t_su = add_fn(symbol, "UP", base + 3.0, "SELL",
-                          f"SELL (take-profit) nếu x tăng 3% (tới {base + 3.0:+.4f}%) [bổ sung sau khi vượt x0]")
+            t_su = add_fn(symbol, "UP", base + SUPPLEMENT_SELL_UP_OFFSET, "SELL",
+                          f"SELL (take-profit) nếu x tăng {abs(SUPPLEMENT_SELL_UP_OFFSET):g}% (tới {base + SUPPLEMENT_SELL_UP_OFFSET:+.4f}%) [bổ sung sau khi vượt x0]")
             if t_su:
                 update_task_sibling_id(sell_down["id"], t_su["id"])
                 update_task_sibling_id(t_su["id"], sell_down["id"])
@@ -684,13 +689,13 @@ def _process_section_price(section_id: int, symbol: str, x0: float,
                 if action == "BUY":
                     pass
                 elif direction == "DOWN":
-                    t_buy = add_fn(symbol, "DOWN", base - 3.0, "BUY",
-                                   f"BUY lại nếu x giảm thêm 3% (tới {base - 3.0:+.4f}%)",
+                    t_buy = add_fn(symbol, "DOWN", base + BUY_AFTER_SELL_DOWN, "BUY",
+                                   f"BUY lại nếu x giảm thêm {abs(BUY_AFTER_SELL_DOWN):g}% (tới {base + BUY_AFTER_SELL_DOWN:+.4f}%)",
                                    sell_origin="SELL_DOWN")
                     new_tasks = [t for t in (t_buy,) if t]
                 else:  # SELL UP
-                    t_buy = add_fn(symbol, "DOWN", base - 2.5, "BUY",
-                                   f"BUY lại nếu x giảm thêm 2.5% (tới {base - 2.5:+.4f}%)",
+                    t_buy = add_fn(symbol, "DOWN", base + BUY_AFTER_SELL_UP, "BUY",
+                                   f"BUY lại nếu x giảm thêm {abs(BUY_AFTER_SELL_UP):g}% (tới {base + BUY_AFTER_SELL_UP:+.4f}%)",
                                    sell_origin="SELL_UP")
                     new_tasks = [t for t in (t_buy,) if t]
 

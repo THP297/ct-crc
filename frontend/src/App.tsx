@@ -604,22 +604,24 @@ function App() {
             {selectedSymbol && priceHistory.length > 0 && (
               <section className="card">
                 <h2>Price History — {selectedSymbol} (last {priceHistory.length})</h2>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Price</th>
-                      <th>Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {priceHistory.map((h, i) => (
-                      <tr key={`ph-${i}`}>
-                        <td>{formatPrice(h.price)}</td>
-                        <td>{h.at}</td>
+                <div className={priceHistory.length > 7 ? "scroll-table" : undefined}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Price</th>
+                        <th>Time</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {priceHistory.map((h, i) => (
+                        <tr key={`ph-${i}`}>
+                          <td>{formatPrice(h.price)}</td>
+                          <td>{h.at}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </section>
             )}
 
@@ -794,7 +796,8 @@ function App() {
                 {/* Passed */}
                 <section className="card">
                   <h2>Passed Tasks (Triggered)</h2>
-                  <table>
+                  <div className={sectionPassedTasks.length > 7 ? "scroll-table" : undefined}>
+                    <table>
                     <thead>
                       <tr>
                         <th>Task #</th>
@@ -841,13 +844,15 @@ function App() {
                         ))
                       )}
                     </tbody>
-                  </table>
+                    </table>
+                  </div>
                 </section>
 
                 {/* Closed */}
                 <section className="card">
                   <h2>Closed Tasks (Cancelled)</h2>
-                  <table>
+                  <div className={sectionClosedTasks.length > 7 ? "scroll-table" : undefined}>
+                    <table>
                     <thead>
                       <tr>
                         <th>Closed #</th>
@@ -898,7 +903,8 @@ function App() {
                         ))
                       )}
                     </tbody>
-                  </table>
+                    </table>
+                  </div>
                 </section>
               </>
             )}
