@@ -54,6 +54,8 @@ TELEGRAM_API_BASE = os.getenv("TELEGRAM_API_BASE", "https://api.telegram.org").s
 
 CHECK_INTERVAL_SEC = int(os.getenv("CHECK_INTERVAL_SEC", "30").strip() or "30")
 PRICE_BAND_PCT = float(os.getenv("PRICE_BAND_PCT", "0.001").strip() or "0.001")
+ALERT_DEBOUNCE_SEC = float(os.getenv("ALERT_DEBOUNCE_SEC", "1").strip() or "1")
+ALERT_CACHE_TTL_SEC = float(os.getenv("ALERT_CACHE_TTL_SEC", "5").strip() or "5")
 EQUAL_TOLERANCE_PCT = float(os.getenv("EQUAL_TOLERANCE_PCT", "0.0001").strip() or "0.0001")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "8").strip() or "8")
 MAX_MESSAGE_LENGTH = int(os.getenv("MAX_MESSAGE_LENGTH", "4096").strip() or "4096")

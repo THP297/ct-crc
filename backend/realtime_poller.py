@@ -40,6 +40,8 @@ _first_ws_price_logged = False
 _SAVE_THROTTLE_SEC = 30
 _last_save_ts: float = 0.0
 
+_price_update_event = threading.Event()
+
 _BINANCE_SYMBOL_MAP = {"BTC": "BTCUSDT", "ETH": "ETHUSDT"}
 _BINANCE_REVERSE_MAP = {v: k for k, v in _BINANCE_SYMBOL_MAP.items()}
 
@@ -127,6 +129,8 @@ async def _ws_loop() -> None:
                             if user_sym != binance_sym:
                                 _latest_prices[binance_sym] = price
 
+                        _price_update_event.set()
+
                         with _lock:
                             snapshot = dict(_latest_prices)
                         _throttled_save(snapshot)
@@ -167,6 +171,7 @@ def _sample_loop() -> None:
         if prices:
             with _lock:
                 _latest_prices.update(prices)
+            _price_update_event.set()
             save_live_prices(prices)
             logger.info("Sample prices: %s", ", ".join(f"{k}={v:,.2f}" for k, v in sorted(prices.items())))
         time.sleep(CHECK_INTERVAL_SEC)
@@ -205,6 +210,14 @@ def get_latest_prices() -> dict[str, float]:
 
 def get_price(symbol: str) -> float | None:
     return get_latest_prices().get(symbol.strip().upper())
+
+
+def wait_for_price_update(timeout: float | None = None) -> bool:
+    """Block until a new price arrives. Returns True if signaled, False on timeout."""
+    triggered = _price_update_event.wait(timeout)
+    if triggered:
+        _price_update_event.clear()
+    return triggered
 
 
 def poll_now() -> dict[str, float]:

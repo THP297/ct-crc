@@ -10,6 +10,8 @@ import threading
 import time
 
 from .config import (
+    ALERT_CACHE_TTL_SEC,
+    ALERT_DEBOUNCE_SEC,
     CHECK_INTERVAL_SEC,
     PRICE_BAND_PCT,
     TELEGRAM_BOT_TOKEN,
@@ -22,6 +24,32 @@ logger = logging.getLogger(__name__)
 # key: section_id → set of alerted task_ids
 _alerted_tasks: dict[int, set[int]] = {}
 
+# Cached sections/tasks to avoid hitting the DB on every price tick.
+_sections_cache: list | None = None
+_tasks_cache: dict[int, list] = {}
+_cache_ts: float = 0.0
+
+
+def _refresh_sections_cache() -> list:
+    """Return sections, refreshing from the store at most once per ALERT_CACHE_TTL_SEC."""
+    global _sections_cache, _tasks_cache, _cache_ts
+    now = time.time()
+    if _sections_cache is not None and now - _cache_ts < ALERT_CACHE_TTL_SEC:
+        return _sections_cache
+    from .store import load_sections
+    _sections_cache = load_sections()
+    _tasks_cache = {}
+    _cache_ts = now
+    return _sections_cache
+
+
+def _tasks_for_section(section_id: int) -> list:
+    """Return the cached task queue for a section, loading lazily."""
+    if section_id not in _tasks_cache:
+        from .store import load_task_queue_by_section
+        _tasks_cache[section_id] = load_task_queue_by_section(section_id)
+    return _tasks_cache[section_id]
+
 
 def _check_section(section: dict, price: float, new_alerts_by_symbol: dict) -> None:
     """Check one section against the live price and collect new alerts."""
@@ -33,8 +61,7 @@ def _check_section(section: dict, price: float, new_alerts_by_symbol: dict) -> N
 
     current_pct = (price / x0 - 1.0) * 100.0
 
-    from .store import load_task_queue_by_section
-    tasks = load_task_queue_by_section(section_id)
+    tasks = _tasks_for_section(section_id)
     if not tasks:
         return
 
@@ -87,13 +114,12 @@ def run_check() -> None:
         return
 
     from .realtime_poller import get_latest_prices
-    from .store import load_sections
 
     prices = get_latest_prices()
     if not prices:
         return
 
-    all_sections = load_sections()
+    all_sections = _refresh_sections_cache()
     if not all_sections:
         return
 
@@ -152,18 +178,19 @@ def run_check() -> None:
 
 
 def start_background_checker() -> None:
-    from .realtime_poller import start_poller
+    from .realtime_poller import start_poller, wait_for_price_update
     start_poller()
 
     def loop():
         time.sleep(5)
         while True:
             try:
+                wait_for_price_update(timeout=CHECK_INTERVAL_SEC)
                 run_check()
             except Exception as e:
                 logger.exception("Checker error: %s", e)
-            time.sleep(CHECK_INTERVAL_SEC)
+            time.sleep(ALERT_DEBOUNCE_SEC)
 
     t = threading.Thread(target=loop, daemon=True)
     t.start()
-    logger.info("Alert checker started (every %ss)", CHECK_INTERVAL_SEC)
+    logger.info("Alert checker started (event-driven, debounce %ss)", ALERT_DEBOUNCE_SEC)
